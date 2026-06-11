@@ -1,0 +1,77 @@
+/* Styles for the "viewer" slideshow (hosted page).
+   The layout is done with Tailwind classes (see build.mjs). We only keep here what
+   Tailwind does not handle cleanly: root height, progress bar transition,
+   UI hiding (.idle, toggled by the central tap), and a defensive .hidden. */
+html { height: 100%; }
+body { min-height: 100%; }
+
+/* The stage AND its media capture one-finger gestures (taps + swipe + scrub) but LEAVE the
+   native pinch-zoom to the browser (iOS zoom preserved). IMPORTANT: must ALSO be set on <img>/<video>
+   (the ACTUAL touch target), otherwise the browser swallows the horizontal drag.
+   We also disable the native iOS behaviors on the image/video: the long-press MENU
+   ("save/share"), SELECTION and DRAG-AND-DROP, otherwise iOS captures the long press /
+   the drag and our video SCRUB never receives the events. (The pinch-zoom itself stays.) */
+#stage, #stage img, #stage video {
+  touch-action: pinch-zoom;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+/* Progress bar: animated width (impossible to express as a Tailwind utility). */
+.progress-bar { transition: width .1s linear; }
+
+/* Hidden chrome: slideshow-core toggles .idle on <body> via the central tap (or 'c').
+   pointer-events:none => once hidden, #controls / #overlay / #topbar let the
+   tap pass through to #stage (otherwise a tap at the bottom/top would be captured by the invisible bar). */
+body.idle #controls,
+body.idle #overlay,
+body.idle #topbar { opacity: 0; pointer-events: none; }
+
+/* When the UI is hidden, the links (title / r/ / u/) must NOT stay clickable: their
+   pointer-events:auto (useful when the UI is visible) would survive the overlay's pointer-events:none
+   and open a post/sub/profile by mistake. So we force them to none when the UI is hidden. */
+body.idle #overlay a { pointer-events: none !important; }
+
+/* Generic hiding (initial screen: loading vs tutorial). Defensive if the CDN is slow. */
+.hidden { display: none !important; }
+
+/* Play/pause button when the slideshow is PAUSED: golden play icon (▶) + slow beat
+   ("heartbeat"), to clearly signal the paused state. The .paused class is toggled by
+   slideshow-core.syncButtons. The convention stays standard: when paused you see ▶ (= resume). */
+@keyframes rss-heartbeat {
+  0%, 100% { transform: scale(1); }
+  12%      { transform: scale(1.14); }
+  24%      { transform: scale(1); }
+  36%      { transform: scale(1.08); }
+  50%      { transform: scale(1); }
+}
+/* !important: beats the button's Tailwind text-white/90 utility (otherwise the icon stays white). */
+/* When paused: we keep the beat, but NO red/orange color on the central button (it stays white). */
+#playpause.paused { animation: rss-heartbeat 1.8s ease-in-out infinite; }
+/* Accessibility: no animation if the user opts out (the golden color stays). */
+@media (prefers-reduced-motion: reduce) { #playpause.paused { animation: none; } }
+
+/* Video scrubbing: on touch, the top bar thickens (44px) while you drag. */
+#progressTrackInner { transition: height .15s ease; }
+/* !important: beats the bar's Tailwind h-[3px] utility (otherwise it does not thicken).
+   Reduced height (~1/3 of the old 22px); during scrub the orange stays OPAQUE (100%). */
+#progressTrackInner.scrubbing { height: 8px !important; }
+/* During scrub, the bar must follow the finger/cursor INSTANTLY. So we cut the
+   `width .1s` transition (which only smooths the PHOTOS auto-advance): otherwise each
+   width change is animated over 100 ms and the bar "lags" behind the cursor (the
+   "the bar moves well after my cursor" bug reported on Mac). The orange stays opaque. */
+#progressTrackInner.scrubbing #progressBar { opacity: 1; transition: none; }
+
+/* Icon "flash" in the center when pausing / resuming by tap (ambient feedback, like a
+   video player): large icon, low opacity, slight zoom, then fade. The .flash class is
+   (re)applied by slideshow-core on each toggle; #tapflash stays invisible the rest of the time. */
+#tapflash { position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center; pointer-events: none; opacity: 0; color: #fff; }
+#tapflash svg { width: 132px; height: 132px; }
+#tapflash.flash { animation: rss-tapflash .6s ease-out; }
+@keyframes rss-tapflash {
+  0%   { opacity: .4; transform: scale(1); }
+  100% { opacity: 0;  transform: scale(1.25); }
+}
+@media (prefers-reduced-motion: reduce) { #tapflash.flash { animation-duration: .12s; } }

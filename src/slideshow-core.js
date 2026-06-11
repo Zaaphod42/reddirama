@@ -1,0 +1,728 @@
+// public/slideshow-core.js
+// Slideshow core, SHARED between the localhost version (app.js) and the userscript.
+// Assumes a DOM containing: #stage #progressBar #overlay #title #sub #controls
+// and the buttons #prev #next #playpause #order #speed #sound #refresh.
+import { nextMode, orderItems } from './order.js';
+
+const SPEEDS = [3, 5, 10, 15]; // seconds (never 0: pausing is handled by #playpause)
+
+// --- SOURCE-DEPENDENT ordering model ----------------------------------------
+// Each source has a "kind":
+//   • 'saved' (finite, ordered CLIENT-SIDE) -> button cycles Newest / Oldest / Shuffle.
+//       Newest = chrono (streamable: we start as soon as the 1st batch arrives).
+//       Oldest = inverse, Shuffle = random: Reddit returns "newest first", so
+//       the FULL set is needed before ordering -> we wait for `complete` (loading screen).
+//   • 'feed' (home + custom feeds, sorted SERVER-SIDE) -> button cycles Hot / New / Top.
+//       Changing the sort RE-FETCHES the feed (onSort); no client-side reordering.
+// English labels (TEXT buttons). SAVED_MODES: keys from order.js. FEED_SORTS: API keys.
+const SAVED_MODES = ['chrono', 'inverse', 'random'];
+const SAVED_LABEL = { chrono: 'Newest', inverse: 'Oldest', random: 'Shuffle' };
+const FEED_SORTS = ['hot', 'new', 'top'];               // default for custom feeds
+const ALL_FEED_SORTS = ['best', 'hot', 'new', 'top'];   // 'best' only exists for Home
+const FEED_LABEL = { best: 'Best', hot: 'Hot', new: 'New', top: 'Top' };
+// For 'saved', only 'chrono' (Newest) is streamable; Oldest/Shuffle require the full set.
+const SAVED_STREAMABLE = (mode) => mode === 'chrono';
+
+// Defensive localStorage: in a blob: tab (userscript) the origin is opaque and
+// localStorage may be unavailable — we degrade silently (default settings).
+const LS = {
+  _get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  _set(k, v) { try { localStorage.setItem(k, v); } catch { /* opaque origin: ignore */ } },
+  // SAVED ordering (client): Newest/Oldest/Shuffle.
+  get mode() { const m = this._get('rss_mode'); return SAVED_MODES.indexOf(m) === -1 ? 'chrono' : m; },
+  set mode(v) { this._set('rss_mode', v); },
+  // FEED sorting (server): Hot/New/Top.
+  get sort() { const s = this._get('rss_sort'); return ALL_FEED_SORTS.indexOf(s) === -1 ? null : s; }, // null => default set by source (Home: best)
+  set sort(v) { this._set('rss_sort', v); },
+  get speed() { return Number(this._get('rss_speed')) || 0; },
+  set speed(v) { this._set('rss_speed', String(v)); },
+  get muted() { return this._get('rss_muted') !== 'false'; },
+  set muted(v) { this._set('rss_muted', String(v)); },
+};
+
+/**
+ * Starts the slideshow on a DOM that is already in place.
+ * @param {object} opts
+ * @param {Array}  [opts.items]       initial media items (already normalized)
+ * @param {string} [opts.kind='saved'] kind of the starting source ('saved' | 'feed')
+ * @param {number} [opts.slideSeconds=5] initial speed (if nothing in localStorage)
+ * @param {Function|null} [opts.onRefresh=null] callback for the ⟳ button; if null, the button is hidden
+ * @param {Function|null} [opts.onBusy=null] (isBusy, count) => void — "Loading… N" screen (saved Oldest/Shuffle)
+ * @param {Function|null} [opts.onSort=null] (sortKey) => void — a feed changes sort (Hot/New/Top): re-fetch
+ * @returns {{ beginSource, addItems, markComplete, setItems, state }}
+ */
+export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds = 5, onRefresh = null, onBusy = null, onSort = null, onEmpty = null } = {}) {
+  const stage = document.getElementById('stage');
+  const progressBar = document.getElementById('progressBar');
+  const progressTrack = document.getElementById('progressTrack');      // touch zone (video scrubbing)
+  const progressInner = document.getElementById('progressTrackInner');  // visible bar (thickens during scrub)
+  const titleEl = document.getElementById('title');
+  const subEl = document.getElementById('sub');
+  const btn = (id) => document.getElementById(id);
+
+  const state = {
+    raw: items || [],
+    list: [],
+    index: 0,
+    kind,                       // 'saved' | 'feed' (drives the order/sort button)
+    mode: LS.mode,              // client-side SAVED ordering (chrono/inverse/random)
+    sort: LS.sort || 'hot',     // placeholder; the real per-source default is set by configureOrder
+    feedSorts: (Array.isArray(feedSorts) && feedSorts.length) ? feedSorts : FEED_SORTS, // sorts available for the current feed (Home: +best)
+    seconds: LS.speed || slideSeconds || 5,
+    playing: true,
+    muted: LS.muted,
+    galleryIndex: 0,
+    started: false,             // has the slideshow started rendering slides?
+    complete: false,            // have all pages of the current source been received?
+    timer: null,
+    raf: null,
+    progressStart: 0,
+  };
+
+  // Automatic chrome hiding (see the "automatic hiding" block further down).
+  let chromeTimer = null;
+  let introShown = false;
+  let chromePinned = false; // keep the chrome visible (no auto-hide) while a sort is loading
+  let dragStartX = null, scrub = null; // #stage gestures: dragStartX = x at pointerdown; scrub = {time,x} during a video scrub
+  let scrubLast = null, scrubSent = null; // video scrub: desired target (finger) vs target already sent to the decoder (one-seek-at-a-time coalescing)
+
+  // Shuffles once (Fisher-Yates). Used at startup in random mode and when the
+  // user (re)selects Shuffle. The result becomes the STABLE order.
+  function shuffleOnce(items) { return orderItems(items, 'random'); }
+
+  // Builds `state.list` from `state.raw` according to the CURRENT mode (SAVED only;
+  // FEEDS keep the server order = chrono on the list side), then re-renders if needed.
+  //   chrono   -> [...raw]            (FEEDS: always here, server order preserved)
+  //   inverse  -> [...raw].reverse()
+  //   random   -> shuffles ONCE (explicit re-shuffle only via cycleOrder)
+  // In random, "incremental" calls (reset=false) do NOT re-shuffle: they simply
+  // append the new items at the end (see addItems). We keep the index by id so
+  // that prev/next retrace exactly the sequence that was seen.
+  function rebuild(reset) {
+    const currentId = state.list[state.index]?.id;
+    // Feeds are already sorted by the server: the list follows the raw order, period.
+    if (state.kind === 'saved' && state.mode === 'random') {
+      if (reset || !state.list.length) {
+        state.list = shuffleOnce(state.raw);
+      } else {
+        const known = new Set(state.list.map((x) => x.id));
+        const fresh = state.raw.filter((x) => x && !known.has(x.id));
+        if (fresh.length) state.list = state.list.concat(shuffleOnce(fresh));
+      }
+    } else if (state.kind === 'saved' && state.mode === 'inverse') {
+      state.list = [...state.raw].reverse();
+    } else {
+      state.list = [...state.raw]; // chrono (saved) OR feed (server order)
+    }
+    if (reset) {
+      state.index = 0;
+      state.galleryIndex = 0;
+      render();
+      return;
+    }
+    const i = state.list.findIndex(x => x.id === currentId);
+    state.index = i >= 0 ? i : 0;
+    // If we land back on the SAME slide (incremental loading case), we don't re-render:
+    // the user keeps watching, the running timer is not interrupted.
+    if (i >= 0 && state.list[state.index]?.id === currentId) {
+      preloadNext(); // the "next" item may have changed: we just refresh the preload
+      return;
+    }
+    state.galleryIndex = 0;
+    render();
+  }
+
+  function current() { return state.list[state.index]; }
+
+  // Links to Reddit (title, external link, r/, u/): open IN THE SAME tab (_self). The post
+  // REPLACES the slideshow, and "back" returns to it (iOS bfcache restores the exact state, otherwise resume
+  // via the sessionStorage cache). This avoids the named tab which, on iOS, opened in the BACKGROUND
+  // ("nothing happens"), and we don't stack up any tabs. Must stay identical to the `target` of #title (viewerHtml).
+  const POST_TARGET = '_self';
+  // DISCREET Reddit link. Inline styles (not Tailwind) to be robust on a dynamically
+  // created element (the Tailwind CDN can be slow to style a class added on the fly):
+  // inherited color, NO underline, clickable even if the overlay is pointer-events:none.
+  function redditLink(text, href, withMargin) {
+    const a = document.createElement('a');
+    a.textContent = text;
+    a.href = href;
+    a.target = POST_TARGET;
+    a.style.cssText = 'color:inherit;text-decoration:none;cursor:pointer;pointer-events:auto' + (withMargin ? ';margin-left:.75rem' : '');
+    return a;
+  }
+  // (No more openReddit: the top-right button became a "close" cross; the title / r/ / u/
+  //  links open the posts themselves in the same tab, _self.)
+
+  function render() {
+    const item = current();
+    if (!item) return;
+    if (chromePinned) { chromePinned = false; armIdle(); } // a sort load delivered content: resume normal auto-hide
+    // Destroy the previous video's hls.js instance (otherwise it keeps downloading in the background).
+    const prevV = stage.querySelector('video');
+    if (prevV && prevV._hls) { try { prevV._hls.destroy(); } catch (e) { /* noop */ } }
+    stage.innerHTML = '';
+    state.galleryIndex = Math.min(state.galleryIndex, (item.images?.length ?? 1) - 1);
+    // We stop any timer/progress from the previous slide; renderMedia (re)arms
+    // the auto-advance at the right moment (image: on 'load'; video: on 'ended').
+    clearTimeout(state.timer);
+    cancelAnimationFrame(state.raf);
+    progressBar.style.width = '0%';
+    state.progressElapsed = 0;             // new slide: the progress (photos) restarts from zero
+    renderMedia(item);
+    titleEl.textContent = item.title || '(untitled)';
+    titleEl.href = item.permalink;
+    // Below the title: r/subreddit + u/author as DISCREET links (no underline).
+    // No middle dot separator (Seb's preference): we space them out with a margin.
+    subEl.innerHTML = '';
+    if (item.subreddit) subEl.appendChild(redditLink(item.subreddit, 'https://www.reddit.com/' + item.subreddit, false));
+    if (item.author) subEl.appendChild(redditLink('u/' + item.author, 'https://www.reddit.com/user/' + item.author, true));
+    preloadNext();
+    // On the VERY 1st slide shown: we display the chrome then let auto-hide take over
+    // (subsequent slides don't re-reveal it, otherwise it would flicker on each advance).
+    if (!introShown) { introShown = true; showChrome(); }
+  }
+
+  // Preloads the next item's image (or the 1st image of a gallery) for a smooth transition.
+  function preloadNext() {
+    if (state.list.length < 2) return;
+    const nextItem = state.list[(state.index + 1) % state.list.length];
+    if (!nextItem) return;
+    let src = null;
+    if (nextItem.type === 'image' || nextItem.type === 'gif') src = nextItem.src;
+    else if (nextItem.type === 'gallery') src = nextItem.images?.[0]?.src;
+    else if (nextItem.type === 'video') src = nextItem.poster || null;
+    if (src) { const im = new Image(); im.src = src; }
+  }
+
+  // --- navigation ---
+  function next() { advance(1); }
+  function prev() { advance(-1); }
+  // skipGallery=true: we jump straight to the previous/next post WITHOUT stepping through
+  // a gallery's sub-images (used by the SWIPE). The TAP, by contrast, steps through the gallery.
+  function advance(dir, skipGallery) {
+    const item = current();
+    // galleries: the TAP steps through the sub-images before changing post (the swipe skips them)
+    if (!skipGallery && item?.type === 'gallery' && item.images.length > 1) {
+      const ni = state.galleryIndex + dir;
+      if (ni >= 0 && ni < item.images.length) { state.galleryIndex = ni; return render(); }
+    }
+    if (!state.list.length) return;
+    state.index = (state.index + dir + state.list.length) % state.list.length;
+    state.galleryIndex = dir > 0 ? 0 : Infinity; // Infinity => last sub-image (clamped in render)
+    render();
+  }
+
+  // --- automatic advance + progress bar ---
+  // Arms the auto-advance timer + the progress bar for the CURRENT slide.
+  // For images/gif/galleries, we only call this on the <img> 'load' (see makeImg):
+  // we never advance before the image is displayed. Videos advance on 'ended'.
+  function armAutoAdvance() {
+    clearTimeout(state.timer);
+    cancelAnimationFrame(state.raf);
+    const item = current();
+    const isVideo = item?.type === 'video';
+    // While PAUSED: we do NOT touch the bar (it stays frozen where it was). Resuming
+    // (setPlaying(true) re-calls armAutoAdvance) RESTARTS from that point via state.progressElapsed.
+    if (!state.playing) return;
+    if (isVideo) return; // videos: bar driven by ontimeupdate (the video loops, even when paused)
+    const duration = state.seconds * 1000;
+    const elapsed = Math.min(state.progressElapsed || 0, duration); // resume from the stored progress
+    state.progressStart = performance.now() - elapsed;
+    progressBar.style.width = (elapsed / duration) * 100 + '%';
+    const tick = (now) => {
+      const e = now - state.progressStart;
+      state.progressElapsed = e;                 // stored so we can RESUME after a pause
+      const pct = Math.min(100, (e / duration) * 100);
+      progressBar.style.width = pct + '%';
+      if (pct < 100) state.raf = requestAnimationFrame(tick);
+    };
+    state.raf = requestAnimationFrame(tick);
+    state.timer = setTimeout(next, Math.max(0, duration - elapsed));
+  }
+
+  function setPlaying(p) {
+    state.playing = p;
+    syncButtons();
+    // The current video must reflect the state: while PAUSED it LOOPS (stays alive instead of
+    // freezing on its last frame); while PLAYING we restart it and, if it had already finished, we
+    // move on to the next one. Auto-advance for images stays driven by armAutoAdvance.
+    const v = stage.querySelector('video');
+    if (v) {
+      v.loop = !p;
+      if (p) {
+        const wasEnded = v.ended;
+        v.play?.().catch(() => {});
+        if (wasEnded) { next(); return; } // video finished during the pause -> advance
+      } else {
+        // Slideshow PAUSED: the video keeps LOOPING (we restart it), so its progress
+        // bar keeps advancing (ontimeupdate). Only PHOTOS freeze their bar.
+        v.play?.().catch(() => {});
+      }
+    }
+    if (p) armAutoAdvance(); else { clearTimeout(state.timer); cancelAnimationFrame(state.raf); }
+  }
+
+  // Common class so that both the image AND the video fill the screen (contain).
+  const MEDIA_CLASS = 'w-full h-full object-contain';
+
+  function renderMedia(item) {
+    if (item.type === 'image' || item.type === 'gif') {
+      return stage.appendChild(makeImg(item.src));
+    }
+    if (item.type === 'gallery') {
+      const sub = item.images[state.galleryIndex] || item.images[0];
+      stage.appendChild(makeImg(sub.src));
+      if (item.images.length > 1) {
+        const badge = document.createElement('span');
+        // Centered at the top: avoids any overlap with the viewer's top bar
+        // (sources dropdown on the left, external link on the right). z-20 < bar (z-30).
+        badge.className = 'gallery-badge fixed top-3 left-1/2 -translate-x-1/2 z-20 px-2 py-0.5 rounded-full bg-black/60 text-white text-xs tabular-nums';
+        badge.textContent = `${state.galleryIndex + 1}/${item.images.length}`;
+        stage.appendChild(badge);
+      }
+      return;
+    }
+    if (item.type === 'video') {
+      const v = document.createElement('video');
+      v.className = MEDIA_CLASS;
+      v.autoplay = true; v.playsInline = true; v.controls = false;
+      v.muted = state.muted; v.poster = item.poster || '';
+      // Slideshow PAUSED => the video LOOPS: it never freezes on its last
+      // frame and will resume cleanly when play is pressed (see setPlaying).
+      v.loop = !state.playing;
+      // Video source. Safari (native HLS): we keep <source> WITH the explicit type
+      // 'application/vnd.apple.mpegurl' — that is what triggers its HLS pipeline (hence the SOUND; a
+      // raw v.src with no type can deprive it of audio). Chrome/Firefox (no native HLS): hls.js plays
+      // the HLS (with sound), quality adapted to the screen. Last fallback: mp4. (typeof Hls: safe outside the viewer.)
+      const nativeHls = !!v.canPlayType('application/vnd.apple.mpegurl');
+      if (item.hls && nativeHls) {
+        const sh = document.createElement('source'); sh.src = item.hls; sh.type = 'application/vnd.apple.mpegurl'; v.appendChild(sh);
+        if (item.mp4) { const sm = document.createElement('source'); sm.src = item.mp4; sm.type = 'video/mp4'; v.appendChild(sm); }
+      } else if (item.hls && typeof Hls !== 'undefined' && Hls.isSupported()) {
+        const hls = new Hls({ capLevelToPlayerSize: true });
+        hls.loadSource(item.hls);
+        hls.attachMedia(v);
+        v._hls = hls;
+      } else if (item.mp4) {
+        v.src = item.mp4;
+      } else if (item.hls) {
+        v.src = item.hls;
+      }
+      // Guard by item ID (not by index): streaming/reordering changes the index,
+      // but the current item stays the same as long as we don't navigate -> we only advance if the
+      // video that finishes is STILL the one displayed.
+      const slideId = current() && current().id;
+      v.onended = () => { if (state.playing && current() && current().id === slideId) next(); };
+      v.onerror = () => setTimeout(() => { if (state.playing && current() && current().id === slideId) next(); }, 1200);
+      // Smooth scrub: at the end of EACH seek, chain to the latest targeted position if the finger
+      // moved in the meantime (coalescing — see seekScrubTo/onScrubSeeked). Outside a scrub, this is inert.
+      v.addEventListener('seeked', () => onScrubSeeked(v));
+      // The top bar shows the video's PLAYBACK progress (elapsed time / duration).
+      v.ontimeupdate = () => {
+        if (scrub) return; // during a SCRUB, the finger drives the bar: otherwise the seek's currentTime
+                           // (lagging) makes it "stutter" / jump, or even appear stuck.
+        const dur = videoDuration(v);
+        if (current() && current().id === slideId && dur > 0) {
+          progressBar.style.width = (v.currentTime / dur) * 100 + '%';
+        }
+      };
+      // MP4 fallback (Safari): some HLS videos (redgifs) NEVER provide a usable duration
+      // (duration Infinity + empty seekable) => scrubbing impossible. If, after loading, the duration stays
+      // unusable and an mp4 exists, we switch back to the mp4 (clean duration => scrub OK). The
+      // v.redd.it videos (correct duration right from load) are not touched (videoDuration > 0).
+      if (nativeHls && item.hls && item.mp4) {
+        v.addEventListener('loadeddata', () => setTimeout(() => {
+          if (current() && current().id === slideId && videoDuration(v) <= 0) {
+            v.innerHTML = '';
+            v.src = item.mp4;
+            v.loop = !state.playing;
+            v.load();
+            v.play?.().catch(() => {});
+          }
+        }, 500), { once: true });
+      }
+      stage.appendChild(v);
+      v.play?.().catch(() => {});
+      return;
+    }
+  }
+
+  function makeImg(src) {
+    // Guard by ID (see video): robust to streaming/reordering that moves the index.
+    const slideId = current() && current().id;
+    const img = document.createElement('img');
+    img.className = MEDIA_CLASS;
+    img.alt = '';
+    // We only arm auto-advance once the image is displayed (not before the 'load').
+    img.onload = () => { if (current() && current().id === slideId) armAutoAdvance(); };
+    img.onerror = () => setTimeout(() => { if (state.playing && current() && current().id === slideId) next(); }, 800); // dead media -> we skip
+    img.src = src;
+    // Image already cached: 'load' may have fired before the handler was attached -> we arm it ourselves.
+    if (img.complete && img.naturalWidth > 0 && current() && current().id === slideId) armAutoAdvance();
+    return img;
+  }
+
+  // Two-state buttons (#playpause, #sound): they embed BOTH svgs, marked with
+  // data-i (play/pause, on/off). showIcon shows the matching one and hides the other.
+  function showIcon(button, key) {
+    if (!button) return;
+    button.querySelectorAll('[data-i]').forEach((svg) => {
+      svg.classList.toggle('hidden', svg.getAttribute('data-i') !== key);
+    });
+  }
+
+  // Current label of the order/sort button depending on the source kind.
+  function orderLabel() {
+    return state.kind === 'feed' ? FEED_LABEL[state.sort] : SAVED_LABEL[state.mode];
+  }
+
+  // #prev / #next are fixed icons (nothing to sync). #playpause / #sound toggle
+  // via showIcon; #order / #speed stay TEXT (variable values: Newest…, Hot…, 5s…).
+  function syncButtons() {
+    showIcon(btn('playpause'), state.playing ? 'pause' : 'play'); // currently playing -> pause; otherwise play
+    const pp = btn('playpause'); if (pp) pp.classList.toggle('paused', !state.playing); // while PAUSED: golden play icon + heartbeat (see slideshow.css)
+    showIcon(btn('sound'), state.muted ? 'off' : 'on');           // muted -> off (volume-x); sound active -> on
+    const order = btn('order'); if (order) order.textContent = orderLabel(); // Newest/Oldest/Shuffle OR Hot/New/Top
+    const speed = btn('speed'); if (speed) speed.textContent = state.seconds + 's';    // 3s / 5s / 10s / 15s
+  }
+
+  // Order/sort button cycle — KIND-DEPENDENT behavior:
+  //   • feed  : Hot -> New -> Top. We do NOT reorder client-side: we delegate to opts.onSort,
+  //             which re-fetches the feed in that sort (the viewer restarts beginSource + rss-load).
+  //             The sort is persisted (rss_sort).
+  //   • saved : Newest -> Oldest -> Shuffle (client). Newest is streamable -> immediate playback.
+  //             Oldest/Shuffle require the FULL set: if not yet `complete`, we switch to
+  //             "busy" (loading screen); otherwise we (re)order and restart from 0.
+  function cycleOrder() {
+    // The order/sort button is SEQUENTIAL (cycles values) and a feed sort re-fetches (sometimes
+    // hundreds of images). Pin the chrome so the UI stays visible and the button is clickable again
+    // right away, instead of auto-hiding mid-load; render() releases the pin once new content shows.
+    chromePinned = true; showChrome();
+    if (state.kind === 'feed') {
+      const arr = state.feedSorts;
+      const i = arr.indexOf(state.sort);
+      state.sort = arr[(i + 1 + arr.length) % arr.length];
+      LS.sort = state.sort;
+      syncButtons();                     // immediate label (the re-fetch follows)
+      if (onSort) onSort(state.sort);     // the viewer restarts the source with this sort
+      return;
+    }
+    // saved
+    state.mode = nextMode(state.mode);
+    LS.mode = state.mode;
+    syncButtons();
+    if (SAVED_STREAMABLE(state.mode)) {
+      // Newest: we restart from the NEWEST (index 0), by symmetry with Oldest/Shuffle which
+      // restart from the beginning. (Incremental streaming, on the other hand, keeps the position via rebuild(false).)
+      if (onBusy) onBusy(false);
+      if (!state.started) { maybeStart(); return; }
+      rebuild(true);
+      return;
+    }
+    // Oldest / Shuffle: we need the whole set.
+    if (!state.complete) {
+      // Not everything received yet: we wait (loading screen), maybeStart will restart on `complete`.
+      state.started = false;
+      if (onBusy) onBusy(true, state.raw.length);
+      return;
+    }
+    // Everything is here: we (re)order and restart from the beginning.
+    if (onBusy) onBusy(false);
+    rebuild(true);
+  }
+
+  function cycleSpeed(dir) {
+    // steps: 3, 5, 10, 15 (never 0; pausing is the role of #playpause). +/- cycles.
+    let i = SPEEDS.indexOf(state.seconds);
+    if (i === -1) i = SPEEDS.indexOf(5);
+    i = (i + dir + SPEEDS.length) % SPEEDS.length;
+    state.seconds = SPEEDS[i];
+    LS.speed = state.seconds;
+    armAutoAdvance(); // re-arms the current timer at the new speed (if playing)
+    syncButtons();
+  }
+
+  function toggleSound() {
+    state.muted = !state.muted;
+    LS.muted = state.muted;
+    const v = stage.querySelector('video');
+    if (v) v.muted = state.muted;
+    syncButtons();
+  }
+
+  // --- button wiring ---
+  btn('prev').onclick = prev;
+  btn('next').onclick = next;
+  btn('playpause').onclick = () => setPlaying(!state.playing);
+  btn('order').onclick = cycleOrder;
+  btn('speed').onclick = () => cycleSpeed(+1);
+  btn('sound').onclick = toggleSound;
+  const refreshBtn = btn('refresh');
+  if (refreshBtn) {
+    if (onRefresh) refreshBtn.onclick = onRefresh;
+    else refreshBtn.style.display = 'none';
+  }
+  // #close button (cross, top right): closes the module's TAB (window.close; the tab was
+  // opened by window.open, so it's closable by script) => return to the EXACT Reddit screen (the Reddit tab
+  // never moved). Optional guard (like #refresh): if the button doesn't exist, we do nothing.
+  const closeBtn = btn('close');
+  if (closeBtn) closeBtn.onclick = () => { try { window.close(); } catch (e) { /* noop */ } };
+
+  // --- keyboard: a=play/pause, m=sound ---
+  document.addEventListener('keydown', (e) => {
+    let handled = true;
+    switch (e.key) {
+      case 'ArrowRight': case 'PageDown': next(); e.preventDefault(); break;
+      case 'ArrowLeft': case 'PageUp': prev(); e.preventDefault(); break;
+      case ' ': case 'a': setPlaying(!state.playing); e.preventDefault(); break; // space or 'a' = play/pause
+      case 'm': toggleSound(); break;
+      case 'o': cycleOrder(); break;
+      case '+': case '=': cycleSpeed(+1); break;
+      case '-': cycleSpeed(-1); break;
+      case 'c': toggleChrome(); handled = false; break; // 'c' toggles explicitly (show OR hide)
+      default: handled = false;
+    }
+    if (handled) showChrome(); // a keyboard action reveals the UI and re-arms auto-hide
+  });
+
+  // --- automatic chrome hiding --------------------------
+  // The chrome (controls + title overlay + top bar) is visible then HIDES itself
+  // after IDLE_MS of inactivity. .idle => opacity:0 AND pointer-events:none
+  // (see slideshow.css): once hidden, a tap passes through to #stage.
+  //   • showChrome()  : shows + (re)arms the hide timer.
+  //   • hideChrome()  : hides + cancels the timer.
+  //   • toggleChrome(): toggles (center tap OR 'c' key): reveals if hidden, HIDES if visible.
+  // Model (Seb's request): the CENTER tap toggles the UI; left/right navigate and KEEP
+  // the UI if it is visible; + automatic hiding after IDLE_MS.
+  const IDLE_MS = 3000;
+  function armIdle() { clearTimeout(chromeTimer); if (chromePinned) return; chromeTimer = setTimeout(() => document.body.classList.add('idle'), IDLE_MS); }
+  function showChrome() { document.body.classList.remove('idle'); armIdle(); }
+  function hideChrome() { clearTimeout(chromeTimer); document.body.classList.add('idle'); }
+  function toggleChrome() { if (document.body.classList.contains('idle')) showChrome(); else hideChrome(); }
+  // With the MOUSE (desktop), any movement reveals the UI; on TOUCH we trigger nothing here
+  // (the finger goes through #stage's tap zones) -> we filter on pointerType 'mouse'.
+  document.addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse') showChrome(); });
+  // Interacting WITH the chrome (clicking a button, opening the source menu) keeps it shown.
+  ['controls', 'topbar'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('pointerdown', showChrome);
+  });
+  const topbarEl = document.getElementById('topbar');
+  if (topbarEl) {
+    topbarEl.addEventListener('focusin', () => clearTimeout(chromeTimer)); // source menu open: we don't hide
+    topbarEl.addEventListener('focusout', armIdle);
+  }
+  // When RETURNING to the viewer tab (after opening a Reddit link then hitting "back"), we REVEAL
+  // the chrome: otherwise it may have hidden itself and the links (title/r//u/) + controls are
+  // no longer clickable until we tap the center again.
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) showChrome(); });
+  window.addEventListener('pageshow', () => showChrome());
+
+  // Center icon flash (play/pause feedback on tap, like a video player): shows the right
+  // icon then restarts the .flash CSS animation. Resuming -> ▶ (play); pausing -> ‖ (pause).
+  const tapflashEl = document.getElementById('tapflash');
+  function flashState(playing) {
+    if (!tapflashEl) return;
+    showIcon(tapflashEl, playing ? 'play' : 'pause');
+    tapflashEl.classList.remove('flash');
+    void tapflashEl.offsetWidth;   // reflow: restarts the animation even if re-triggered very quickly
+    tapflashEl.classList.add('flash');
+  }
+
+  // --- gestures on #stage (mouse + touch), media-TYPE-DEPENDENT (model requested by Seb):
+  //   • Simple image : TAP only (left=previous, center=toggle UI, right=next).
+  //   • Gallery       : TAP (sub-image) + horizontal SWIPE = previous/next post (skips the album).
+  //   • Video         : TAP (navigation) + horizontal DRAG ANYWHERE = SCRUB (relative).
+  // #progressTrack is purely visual (pointer-events:none); #progressTrackInner thickens
+  // during a scrub (visual feedback). UI hiding is always automatic; the center tap toggles; left/
+  // right don't reveal it if hidden. Buttons/title link are outside #stage => their clicks stay intact.
+  const SWIPE_MIN = 45;   // wide drag = album swipe (gallery)
+  const DRAG_MIN = 8;     // beyond this: it's a drag, so not a tap
+  const DOUBLE_TAP_MS = 280; // center double-tap window (= pause)
+  let lastCenterTap = 0;     // e.timeStamp of the last center tap (to detect the double tap)
+  const chromeVisible = () => !document.body.classList.contains('idle');
+  // EFFECTIVE duration of a video: v.duration if finite, otherwise the end of the "seekable" range. Some
+  // HLS videos (e.g. redgifs) return duration = Infinity/NaN to Safari => without this, both the scrub AND the
+  // progress bar stay stuck at zero.
+  function videoDuration(v) {
+    if (!v) return 0;
+    if (isFinite(v.duration) && v.duration > 0) return v.duration;
+    try { if (v.seekable && v.seekable.length) { const e = v.seekable.end(v.seekable.length - 1); if (isFinite(e) && e > 0) return e; } } catch (_) { /* noop */ }
+    return 0;
+  }
+  // --- SMOOTH video scrub (coalescing + fastSeek) -----------------------------------------------
+  // Setting v.currentTime on EVERY pointermove saturates the decoder (flood of seeks) => the video "stutters",
+  // especially BACKWARD (each exact seek re-decodes from the previous keyframe). So we keep
+  // only ONE seek in flight: seekScrubTo sends the target; subsequent moves merely store the most
+  // recent one (scrubLast); on 'seeked' (onScrubSeeked) we chain to scrubLast if the finger moved.
+  // fastSeek (Safari/Firefox) = APPROXIMATE seek to the nearest keyframe = much faster during
+  // the drag; the EXACT seek (precise frame) is done on release (endVideoScrub).
+  function seekScrubTo(v, t) {
+    if (!v) return;
+    scrubSent = t;
+    if (typeof v.fastSeek === 'function') { try { v.fastSeek(t); return; } catch (_) { /* fall back to currentTime */ } }
+    try { v.currentTime = t; } catch (_) { /* noop */ }
+  }
+  function onScrubSeeked(v) {
+    // If the finger moved since the last SENT seek, we chain to the most recent target.
+    // We compare scrubLast to scrubSent (what we REQUESTED), not to v.currentTime (fastSeek shifts it
+    // toward the keyframe) — otherwise an infinite loop.
+    if (scrub && scrubLast != null && scrubLast !== scrubSent) seekScrubTo(v, scrubLast);
+  }
+  function endVideoScrub(resume) {
+    if (!scrub) return;
+    scrub = null;
+    if (progressInner) progressInner.classList.remove('scrubbing');
+    const v = stage.querySelector('video');
+    // Final EXACT seek to where the finger stopped (fastSeek during the scrub is only approximate toward the
+    // keyframe; currentTime = precise frame). Then we ALWAYS resume playback (when paused the video
+    // loops via v.loop, otherwise the scrub seemed to "freeze").
+    if (v && scrubLast != null) { try { v.currentTime = scrubLast; } catch (_) { /* noop */ } }
+    scrubLast = scrubSent = null;
+    if (resume && v) v.play?.().catch(() => {});
+  }
+  stage.addEventListener('pointerdown', (e) => { dragStartX = e.clientX; scrub = null; scrubLast = scrubSent = null; }, { passive: true });
+  stage.addEventListener('pointermove', (e) => {
+    if (dragStartX === null) return;
+    const it = current();
+    if (!it || it.type !== 'video') return;                      // scrub: videos only
+    const v = stage.querySelector('video');
+    const dur = videoDuration(v);
+    if (!v || dur <= 0) return;
+    if (!scrub) {
+      if (Math.abs(e.clientX - dragStartX) <= DRAG_MIN) return;  // not a drag yet
+      scrub = true;
+      if (progressInner) progressInner.classList.add('scrubbing');
+      v.pause();
+    }
+    // ABSOLUTE scrub: the finger's X position (minus a left/right margin) covers the WHOLE duration, so a
+    // single edge-to-edge drag covers the whole video (no matter where we started).
+    const M = 24, usable = Math.max(1, window.innerWidth - 2 * M);
+    const frac = Math.min(1, Math.max(0, (e.clientX - M) / usable));
+    progressBar.style.width = (frac * 100) + '%';   // the bar follows the finger on EVERY move (transition disabled during scrub => instant)
+    scrubLast = frac * dur;                           // most recent desired target
+    if (!v.seeking) seekScrubTo(v, scrubLast);        // a single seek in flight; onScrubSeeked will chain on 'seeked'
+  }, { passive: true });
+  stage.addEventListener('pointerup', (e) => {
+    if (dragStartX === null) return;
+    const dx = e.clientX - dragStartX;
+    const wasScrub = !!scrub;
+    dragStartX = null;
+    if (wasScrub) { endVideoScrub(true); return; }               // end of a video scrub
+    const it = current();
+    if (Math.abs(dx) > SWIPE_MIN) {                              // wide drag
+      if (it && it.type === 'gallery') { advance(dx < 0 ? 1 : -1, true); if (chromeVisible()) armIdle(); } // album swipe
+      return;                                                    // simple image / other: a drag doesn't navigate
+    }
+    const x = e.clientX;                                         // TAP (small movement)
+    if (x >= window.innerWidth / 3 && x <= window.innerWidth * 2 / 3) {
+      // CENTER ZONE: DOUBLE tap = pause; SINGLE tap = resume (if paused) otherwise
+      // reveal the UI (which re-hides itself). No delay: the single tap acts immediately, a
+      // quick 2nd tap pauses on top. (Detection via e.timeStamp, monotonic.)
+      if (e.timeStamp - lastCenterTap < DOUBLE_TAP_MS) {
+        lastCenterTap = 0;                                       // double tap consumed
+        if (state.playing) { setPlaying(false); flashState(false); }
+      } else {
+        lastCenterTap = e.timeStamp;
+        if (!state.playing) { setPlaying(true); flashState(true); }
+        else showChrome();                                       // while playing: 1st tap reveals the UI
+      }
+    } else {
+      // LEFT / RIGHT zones: previous / next. If we were PAUSED, we RESTART the slideshow
+      // at the same time as changing image (Seb's request).
+      if (x < window.innerWidth / 3) prev(); else next();
+      if (!state.playing) setPlaying(true);
+      if (chromeVisible()) armIdle();
+    }
+  }, { passive: true });
+  stage.addEventListener('pointercancel', () => { dragStartX = null; endVideoScrub(false); }, { passive: true });
+
+  // (The video scrub is now done by DRAGGING on #stage, see the "gestures" section above;
+  //  #progressTrack is now only a visual indicator.)
+
+  // --- deferred startup depending on the source -------------------------------------
+  // maybeStart: decides WHEN to start rendering the 1st slide.
+  //   • saved + Newest, OR feed (always streamable): we start as soon as there are items.
+  //   • saved + Oldest/Shuffle: we wait for `complete` (the full set); otherwise we signal "busy"
+  //     (loading screen with a counter) and don't start.
+  // If ALREADY started and streamable: we APPEND while preserving the position (rebuild(false)).
+  function maybeStart() {
+    if (state.started) {
+      const streamable = state.kind === 'feed' || SAVED_STREAMABLE(state.mode);
+      if (streamable) rebuild(false); // append while keeping the current slide by id
+      return;
+    }
+    const streamable = state.kind === 'feed' || SAVED_STREAMABLE(state.mode);
+    if (streamable) {
+      if (!state.raw.length) return;       // nothing yet: we wait for the 1st batch
+      if (onBusy) onBusy(false);
+      state.started = true;
+      rebuild(true);                       // 1st slide, from index 0
+      return;
+    }
+    // saved + Oldest/Shuffle: we need the FULL set.
+    if (!state.complete) { if (onBusy) onBusy(true, state.raw.length); return; }
+    if (!state.raw.length) return;
+    if (onBusy) onBusy(false);
+    state.started = true;
+    rebuild(true);
+  }
+
+  // Configures the order/sort button + the current mode/sort for the given KIND (label from LS).
+  function configureOrder() {
+    if (state.kind === 'feed') {
+      state.sort = state.feedSorts.indexOf(LS.sort) !== -1 ? LS.sort : state.feedSorts[0]; // valid sort for THIS source
+    } else {
+      state.mode = LS.mode;   // Newest/Oldest/Shuffle
+    }
+    syncButtons();
+  }
+
+  syncButtons();
+  // UI visible on load; it will hide itself after the 1st slide (see showChrome in render).
+  configureOrder();
+  // If initial items were provided, we attempt an immediate start (otherwise we wait for
+  // addItems/markComplete driven by the viewer).
+  maybeStart();
+
+  return {
+    // (Re)initializes for a NEW source: clears the buffer, re-arms the button according to the kind,
+    // and resets started/complete to false. The viewer calls this BEFORE (re)loading a source.
+    beginSource({ kind = 'saved', feedSorts } = {}) {
+      state.kind = kind;
+      state.feedSorts = (Array.isArray(feedSorts) && feedSorts.length) ? feedSorts : FEED_SORTS;
+      state.raw = [];
+      state.list = [];
+      state.index = 0;
+      state.galleryIndex = 0;
+      state.started = false;
+      state.complete = false;
+      configureOrder();
+    },
+    // Incremental addition (de-duplicated by id) then attempt to start/append.
+    addItems(newItems) {
+      if (!Array.isArray(newItems) || !newItems.length) return;
+      const seen = new Set(state.raw.map((x) => x.id));
+      const fresh = newItems.filter((x) => x && !seen.has(x.id));
+      if (!fresh.length) { if (!state.started) maybeStart(); return; }
+      state.raw = state.raw.concat(fresh);
+      maybeStart();
+    },
+    // All pages of the current source are received: we unlock Oldest/Shuffle.
+    markComplete() {
+      state.complete = true;
+      maybeStart();
+      // Source fully received but NO displayable media (sub/profile all text/links with no
+      // preview): we notify the viewer ("no media" message rather than an endless "Loading…").
+      if (onEmpty && !state.started && !state.raw.length) onEmpty();
+    },
+    // Backward compat (app.js localhost): replaces everything and restarts immediately.
+    setItems(newItems) {
+      state.raw = newItems || [];
+      state.started = false;
+      state.complete = true;     // set provided in one block => considered complete
+      maybeStart();
+    },
+    state,
+  };
+}

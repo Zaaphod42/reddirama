@@ -1,0 +1,9 @@
+node_modules/
+.DS_Store
+
+# Xcode (Safari extension project)
+xcuserdata/
+*.xcuserstate
+*.xcuserdatad/
+DerivedData/
+build/

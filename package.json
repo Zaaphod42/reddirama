@@ -1,0 +1,11 @@
+{
+  "name": "reddirama",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "description": "Fullscreen, hands-free slideshow for Reddit: any subreddit or profile, your Home, saved, upvoted and custom feeds. Userscript, hosted viewer and browser extension.",
+  "scripts": {
+    "test": "node --test",
+    "build": "node userscript/build.mjs"
+  }
+}
