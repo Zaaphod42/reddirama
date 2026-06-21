@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Reddirama",
-  "version": "1.0.0",
+  "version": "1.1.1",
   "description": "Fullscreen, hands-free slideshow for Reddit: any subreddit or profile, your Home, saved, upvoted and custom feeds.",
   "homepage_url": "https://github.com/Zaaphod42/reddirama",
   "icons": {

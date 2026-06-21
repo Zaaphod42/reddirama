@@ -19,7 +19,7 @@ const VIEWER_URL = 'https://zaaphod42.github.io/reddirama/';
 const VIEWER_ORIGIN = 'https://zaaphod42.github.io';
 // VIEWER build number, shown small and unobtrusive on the loading screen: lets Seb
 // VERIFY that he is seeing the latest version (and not a cached one). Bump this on every viewer build.
-const VIEWER_BUILD = '1.0.0';
+const VIEWER_BUILD = '1.1.1';
 
 const mediaSrc = strip(read('src/media.js'));            // normalizeSaved (userscript, reddit side)
 const orderSrc = strip(read('src/order.js'));            // nextMode / orderItems (viewer)
@@ -424,7 +424,7 @@ writeFileSync(join(ROOT, 'docs/index.html'), viewerHtml);
 const header = `// ==UserScript==
 // @name         Reddirama
 // @namespace    https://github.com/Zaaphod42/reddirama
-// @version      1.0.0
+// @version      1.1.1
 // @description  Fullscreen, hands-free slideshow for Reddit: any subreddit or profile, your Home feed, and (logged in) your saved, upvoted and custom feeds. Pick the source in the viewer; adjustable speed, sound, video scrubbing.
 // @author       Zaaphod42
 // @match        https://www.reddit.com/*
@@ -600,7 +600,7 @@ const launcher = `  function fetchJson(url) {
     // Cache-bust (?v=timestamp): forces the browser to load the LATEST viewer version on every
     // launch. Without it, the cached HTML (GitHub Pages ~10 min, aggressive Safari) hides viewer
     // updates (e.g. a sound fix). The origin stays the same => the postMessages still work.
-    var US_BUILD = '1.0.0'; // userscript version, passed to the viewer (?us=) for the version badge (cache diag)
+    var US_BUILD = '1.1.1'; // userscript version, passed to the viewer (?us=) for the version badge (cache diag)
     var win = window.open(VIEWER_URL + '?v=' + Date.now() + '&us=' + US_BUILD, '_blank');
     if (!win) {
       if (btn && btn.id === 'rss-launch') { btn.textContent = '\\u2192 Allow pop-ups, then retry'; setTimeout(function () { btn.textContent = orig; }, 3000); }
@@ -660,15 +660,136 @@ const launcher = `  function fetchJson(url) {
     if (m && p.indexOf('/m/') === -1) return { tag: 'u/', id: 'user:' + m[1], label: 'u/' + m[1], kind: 'saved' };
     return null;
   }
-  // A SINGLE "Reddirama" button (bottom-right). detectContext() is read ON CLICK: on a
-  // subreddit/profile page, that subreddit/profile is placed AT THE TOP of the dropdown and played immediately;
-  // elsewhere => Home by default. (Reddit is a SPA: we re-read the context on every click.)
+  // ---- draggable launch button: a grip handle (two dot columns) + magnetic snap to the 4 corners ----
+  // Only the grip is a drag zone; the rest of the capsule stays clickable (launch). While dragging,
+  // dashed outlines mark the 4 corners and the nearest one is highlighted; releasing snaps to it.
+  // The chosen corner is remembered in localStorage (reddit.com origin). Pointer events => touch (iPad)
+  // and mouse alike; touch-action:none on the grip stops the page from scrolling during a drag.
+  var BTN_MARGIN = 16;
+  function loadCorner() { try { return localStorage.getItem('rss_btn_corner') || 'br'; } catch (e) { return 'br'; } }
+  function saveCorner(c) { try { localStorage.setItem('rss_btn_corner', c); } catch (e) {} }
+  // The two TOP corners must sit BELOW Reddit's sticky top nav bar. We measure the tallest
+  // top-pinned, near-full-width fixed/sticky bar; if none is found (e.g. it lives in a shadow
+  // root) we fall back to ~56px (new Reddit's header height). BTN_MARGIN is then added.
+  function topInset() {
+    var bar = 0;
+    try {
+      var els = document.body.querySelectorAll('*');
+      for (var i = 0; i < els.length && i < 4000; i++) {
+        var e = els[i], cs = window.getComputedStyle(e);
+        if (cs.position !== 'fixed' && cs.position !== 'sticky') continue;
+        var r = e.getBoundingClientRect();
+        if (r.top <= 1 && r.height > 0 && r.height < 160 && r.width >= window.innerWidth * 0.6 && r.bottom > bar) bar = r.bottom;
+      }
+    } catch (e) {}
+    return Math.round(bar || 56) + BTN_MARGIN;
+  }
+  function applyCorner(b, c) {
+    b.style.top = b.style.bottom = b.style.left = b.style.right = 'auto';
+    var m = BTN_MARGIN + 'px', t = topInset() + 'px';
+    if (c === 'tl') { b.style.top = t; b.style.left = m; }
+    else if (c === 'tr') { b.style.top = t; b.style.right = m; }
+    else if (c === 'bl') { b.style.bottom = m; b.style.left = m; }
+    else { b.style.bottom = m; b.style.right = m; }
+  }
+  // The grip: two columns of three white dots, with a thin divider on its left. Built via DOM
+  // (no innerHTML) to stay safe under Reddit's Trusted Types.
+  function makeGrip() {
+    var g = document.createElement('span');
+    g.setAttribute('aria-label', 'Drag to move');
+    g.style.cssText = 'display:inline-flex;align-self:stretch;align-items:center;gap:3px;margin-left:3px;padding:0 7px;border-left:0.5px solid rgba(255,255,255,.45);cursor:grab;touch-action:none';
+    for (var col = 0; col < 2; col++) {
+      var c = document.createElement('span');
+      c.style.cssText = 'display:inline-flex;flex-direction:column;gap:3px';
+      for (var i = 0; i < 3; i++) {
+        var d = document.createElement('span');
+        d.style.cssText = 'width:3px;height:3px;border-radius:50%;background:rgba(255,255,255,.85)';
+        c.appendChild(d);
+      }
+      g.appendChild(c);
+    }
+    return g;
+  }
+  function enableDrag(b, grip) {
+    var phs = null, ox = 0, oy = 0, started = false, moving = false;
+    function nearest() {
+      var r = b.getBoundingClientRect();
+      var cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+      return (cy < window.innerHeight / 2 ? 't' : 'b') + (cx < window.innerWidth / 2 ? 'l' : 'r');
+    }
+    function showPh() {
+      var r = b.getBoundingClientRect();
+      var w = Math.round(r.width), h = Math.round(r.height), m = BTN_MARGIN + 'px', ti = topInset() + 'px';
+      var pos = { tl: 'top:' + ti + ';left:' + m, tr: 'top:' + ti + ';right:' + m, bl: 'bottom:' + m + ';left:' + m, br: 'bottom:' + m + ';right:' + m };
+      phs = [];
+      ['tl', 'tr', 'bl', 'br'].forEach(function (k) {
+        var el = document.createElement('div');
+        el.setAttribute('data-corner', k);
+        el.style.cssText = 'position:fixed;z-index:2147483646;box-sizing:border-box;width:' + w + 'px;height:' + h + 'px;border:2px dashed rgba(255,69,0,.55);border-radius:999px;background:rgba(255,69,0,.06);pointer-events:none;' + pos[k];
+        document.body.appendChild(el);
+        phs.push(el);
+      });
+    }
+    function highlightPh(c) {
+      if (!phs) return;
+      phs.forEach(function (el) {
+        var on = el.getAttribute('data-corner') === c;
+        el.style.borderStyle = on ? 'solid' : 'dashed';
+        el.style.borderColor = on ? '#FF4500' : 'rgba(255,69,0,.55)';
+        el.style.background = on ? 'rgba(255,69,0,.18)' : 'rgba(255,69,0,.06)';
+      });
+    }
+    function hidePh() {
+      if (!phs) return;
+      phs.forEach(function (el) { if (el.parentNode) el.parentNode.removeChild(el); });
+      phs = null;
+    }
+    grip.addEventListener('click', function (e) { e.stopPropagation(); });
+    grip.addEventListener('pointerdown', function (e) {
+      e.preventDefault(); e.stopPropagation();
+      var r = b.getBoundingClientRect();
+      ox = e.clientX - r.left; oy = e.clientY - r.top;
+      started = true; moving = false;
+      grip.style.cursor = 'grabbing';
+      try { grip.setPointerCapture(e.pointerId); } catch (_) {}
+    });
+    grip.addEventListener('pointermove', function (e) {
+      if (!started) return;
+      if (!moving) { moving = true; showPh(); }
+      var r = b.getBoundingClientRect();
+      var x = Math.max(8, Math.min(e.clientX - ox, window.innerWidth - r.width - 8));
+      var y = Math.max(8, Math.min(e.clientY - oy, window.innerHeight - r.height - 8));
+      b.style.top = y + 'px'; b.style.left = x + 'px'; b.style.right = 'auto'; b.style.bottom = 'auto';
+      highlightPh(nearest());
+    });
+    function end(e) {
+      if (!started) return;
+      started = false;
+      grip.style.cursor = 'grab';
+      try { grip.releasePointerCapture(e.pointerId); } catch (_) {}
+      if (moving) {
+        var c = nearest();
+        applyCorner(b, c);
+        saveCorner(c);
+        // Swallow the click that the browser may fire right after the drag (so we don't launch).
+        b._rssDragged = true;
+        setTimeout(function () { b._rssDragged = false; }, 50);
+      }
+      hidePh();
+      moving = false;
+    }
+    grip.addEventListener('pointerup', end);
+    grip.addEventListener('pointercancel', end);
+  }
+  // A SINGLE "Reddirama" button (draggable; default bottom-right). detectContext() is read ON CLICK:
+  // on a subreddit/profile page, that subreddit/profile is placed AT THE TOP of the dropdown and played
+  // immediately; elsewhere => Home by default. (Reddit is a SPA: we re-read the context on every click.)
   function addButton() {
     if (document.getElementById('rss-launch') || !document.body) return;
     var b = document.createElement('button');
     b.id = 'rss-launch';
     b.title = 'Play a fullscreen slideshow of your Reddit (saved, upvoted, home, this subreddit or profile, and feeds)';
-    b.style.cssText = 'position:fixed;bottom:16px;right:16px;z-index:2147483647;display:inline-flex;align-items:center;justify-content:center;gap:7px;background:#FF4500;color:#fff;border:0;border-radius:999px;padding:10px 16px 10px 13px;font:600 14px -apple-system,system-ui,sans-serif;cursor:pointer';
+    b.style.cssText = 'position:fixed;z-index:2147483647;display:inline-flex;align-items:center;justify-content:center;gap:7px;background:#FF4500;color:#fff;border:0;border-radius:999px;padding:10px 8px 10px 13px;font:600 14px -apple-system,system-ui,sans-serif;cursor:pointer;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none';
     // Reddirama logo (white) TO THE LEFT of the text. Built via DOM (createElementNS) rather than
     // innerHTML: robust if Reddit enforces Trusted Types (innerHTML='...' would throw there).
     var SVGNS = 'http://www.w3.org/2000/svg';
@@ -681,9 +802,12 @@ const launcher = `  function fetchJson(url) {
     lp.setAttribute('d', 'M966.7,0v.2c-213.6,3.4-378.1,96.5-486.5,221.7h-9.2V21.2H0v1430.1h484.7v-.2c213.6-3.4,378.1-96.5,486.5-221.7h9.2v200.7h470.9V0h-484.7ZM782.6,1008.8c-53.7,22.6-109,34.6-164.1,34.6s-107.4-10.7-133.9-21v-306.1c0-134.2,78.2-227.3,184-273.8,53.7-22.6,109-34.6,164.1-34.6s107.4,10.7,133.9,21v306.1c0,134.2-78.2,227.3-184,273.8Z');
     logo.appendChild(lp);
     var label = document.createElement('span'); label.textContent = 'Reddirama';
-    b.appendChild(logo); b.appendChild(label);
-    b.addEventListener('click', function () { launch(b, detectContext()); });
+    var grip = makeGrip();
+    b.appendChild(logo); b.appendChild(label); b.appendChild(grip);
+    b.addEventListener('click', function () { if (b._rssDragged) return; launch(b, detectContext()); });
     document.body.appendChild(b);
+    applyCorner(b, loadCorner());
+    enableDrag(b, grip);
   }
   addButton();
   if (document.body) new MutationObserver(addButton).observe(document.body, { childList: true });`;

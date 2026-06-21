@@ -33,7 +33,7 @@ separate origin, that's why there's a hosted viewer.)
 
 **Chrome, Edge, Brave (easiest):** get it in one click from the [Chrome Web Store](https://chromewebstore.google.com/detail/reddirama/mledcgjmckciblonmlbpbidjdckbapgl).
 
-**Firefox:** coming soon to Firefox Add-ons (currently in review).
+**Firefox:** get it in one click from [Firefox Add-ons](https://addons.mozilla.org/firefox/addon/reddirama/).
 
 **Or install it as a userscript** (works everywhere, including **iPhone / iPad**). You need a userscript manager in your browser, then the script itself.
 
@@ -49,7 +49,7 @@ separate origin, that's why there's a hosted viewer.)
 
 **Android:** use **Firefox** with **Tampermonkey**, or **Kiwi Browser**, then add the script.
 
-The browser extension (one click, no userscript manager) is on the [Chrome Web Store](https://chromewebstore.google.com/detail/reddirama/mledcgjmckciblonmlbpbidjdckbapgl) (Firefox coming soon). Its source lives in [`extensions/chrome-firefox/`](extensions/chrome-firefox/), built from the same code, and there's also an experimental **Safari** build (an Xcode project) in [`extensions/safari/`](extensions/safari/). See [`extensions/README.md`](extensions/README.md) to load or build each.
+The browser extension (one click, no userscript manager) is on the [Chrome Web Store](https://chromewebstore.google.com/detail/reddirama/mledcgjmckciblonmlbpbidjdckbapgl) and [Firefox Add-ons](https://addons.mozilla.org/firefox/addon/reddirama/). Its source lives in [`extensions/chrome-firefox/`](extensions/chrome-firefox/), built from the same code, and there's also an experimental **Safari** build (an Xcode project) in [`extensions/safari/`](extensions/safari/). See [`extensions/README.md`](extensions/README.md) to load or build each.
 
 ## Use
 
