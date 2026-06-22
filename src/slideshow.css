@@ -29,10 +29,11 @@ body.idle #controls,
 body.idle #overlay,
 body.idle #topbar { opacity: 0; pointer-events: none; }
 
-/* When the UI is hidden, the links (title / r/ / u/) must NOT stay clickable: their
-   pointer-events:auto (useful when the UI is visible) would survive the overlay's pointer-events:none
-   and open a post/sub/profile by mistake. So we force them to none when the UI is hidden. */
-body.idle #overlay a { pointer-events: none !important; }
+/* When the UI is hidden, the links (title / r/ / u/) AND the bookmark button must NOT stay
+   clickable: their pointer-events:auto (useful when the UI is visible) would survive the overlay's
+   pointer-events:none and open a post/sub/profile (or save) by mistake. So we force them off too. */
+body.idle #overlay a,
+body.idle #overlay button { pointer-events: none !important; }
 
 /* Generic hiding (initial screen: loading vs tutorial). Defensive if the CDN is slow. */
 .hidden { display: none !important; }
@@ -67,11 +68,14 @@ body.idle #overlay a { pointer-events: none !important; }
 /* Icon "flash" in the center when pausing / resuming by tap (ambient feedback, like a
    video player): large icon, low opacity, slight zoom, then fade. The .flash class is
    (re)applied by slideshow-core on each toggle; #tapflash stays invisible the rest of the time. */
-#tapflash { position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center; pointer-events: none; opacity: 0; color: #fff; }
-#tapflash svg { width: 132px; height: 132px; }
-#tapflash.flash { animation: rss-tapflash .6s ease-out; }
+/* #voteflash shares the same centered, animated treatment (swipe up/down = vote feedback);
+   its colour is set inline by slideshow-core (gold up / periwinkle down / dim when removed). */
+#tapflash, #voteflash { position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center; pointer-events: none; opacity: 0; }
+#tapflash { color: #fff; }
+#tapflash svg, #voteflash svg { width: 132px; height: 132px; }
+#tapflash.flash, #voteflash.flash { animation: rss-tapflash .6s ease-out; }
 @keyframes rss-tapflash {
   0%   { opacity: .4; transform: scale(1); }
   100% { opacity: 0;  transform: scale(1.25); }
 }
-@media (prefers-reduced-motion: reduce) { #tapflash.flash { animation-duration: .12s; } }
+@media (prefers-reduced-motion: reduce) { #tapflash.flash, #voteflash.flash { animation-duration: .12s; } }

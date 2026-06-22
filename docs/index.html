@@ -29,10 +29,11 @@ body.idle #controls,
 body.idle #overlay,
 body.idle #topbar { opacity: 0; pointer-events: none; }
 
-/* When the UI is hidden, the links (title / r/ / u/) must NOT stay clickable: their
-   pointer-events:auto (useful when the UI is visible) would survive the overlay's pointer-events:none
-   and open a post/sub/profile by mistake. So we force them to none when the UI is hidden. */
-body.idle #overlay a { pointer-events: none !important; }
+/* When the UI is hidden, the links (title / r/ / u/) AND the bookmark button must NOT stay
+   clickable: their pointer-events:auto (useful when the UI is visible) would survive the overlay's
+   pointer-events:none and open a post/sub/profile (or save) by mistake. So we force them off too. */
+body.idle #overlay a,
+body.idle #overlay button { pointer-events: none !important; }
 
 /* Generic hiding (initial screen: loading vs tutorial). Defensive if the CDN is slow. */
 .hidden { display: none !important; }
@@ -67,15 +68,18 @@ body.idle #overlay a { pointer-events: none !important; }
 /* Icon "flash" in the center when pausing / resuming by tap (ambient feedback, like a
    video player): large icon, low opacity, slight zoom, then fade. The .flash class is
    (re)applied by slideshow-core on each toggle; #tapflash stays invisible the rest of the time. */
-#tapflash { position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center; pointer-events: none; opacity: 0; color: #fff; }
-#tapflash svg { width: 132px; height: 132px; }
-#tapflash.flash { animation: rss-tapflash .6s ease-out; }
+/* #voteflash shares the same centered, animated treatment (swipe up/down = vote feedback);
+   its colour is set inline by slideshow-core (gold up / periwinkle down / dim when removed). */
+#tapflash, #voteflash { position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center; pointer-events: none; opacity: 0; }
+#tapflash { color: #fff; }
+#tapflash svg, #voteflash svg { width: 132px; height: 132px; }
+#tapflash.flash, #voteflash.flash { animation: rss-tapflash .6s ease-out; }
 @keyframes rss-tapflash {
   0%   { opacity: .4; transform: scale(1); }
   100% { opacity: 0;  transform: scale(1.25); }
 }
-@media (prefers-reduced-motion: reduce) { #tapflash.flash { animation-duration: .12s; } }
-</style></head><body class="h-full bg-black text-white overflow-hidden"><div id="stage" class="fixed inset-0 flex items-center justify-center bg-black"></div><div id="tapflash"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-i="play"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-i="pause"><circle cx="12" cy="12" r="10"/><line x1="10" x2="10" y1="15" y2="9"/><line x1="14" x2="14" y1="15" y2="9"/></svg></div><div id="progressTrack" class="fixed inset-x-0 top-0 z-40 h-11" style="touch-action:none;pointer-events:none"><div id="progressTrackInner" class="relative h-[3px] bg-white/15"><div id="progressBar" class="progress-bar absolute inset-y-0 left-0 w-0 bg-gold"></div></div></div><div id="overlay" class="fixed inset-x-0 bottom-16 z-20 px-4 text-center pointer-events-none transition-opacity duration-300" style="text-shadow:0 1px 4px #000"><a id="title" class="text-base font-medium text-white hover:text-gold no-underline pointer-events-auto" href="#" target="_self"></a><span id="sub" class="block mt-1 text-xs text-white/60"></span></div><div id="topbar" class="fixed inset-x-0 top-0 z-[60] flex items-center justify-between p-3 pointer-events-none transition-opacity duration-300"><div class="relative flex items-center pointer-events-auto"><select id="source-select" class="hidden appearance-none max-w-[45vw] h-9 pl-3 pr-8 rounded-lg bg-white/10 text-sm text-white border border-transparent hover:bg-white/20 focus:outline-none focus:border-white/50 focus:ring-1 focus:ring-white/50 cursor-pointer" title="Source"></select><svg id="source-chevron" class="hidden pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></div><div class="flex items-center pointer-events-auto"><button id="close" class="inline-flex items-center justify-center w-9 h-9 rounded-lg text-white/90 hover:text-white active:text-gold hover:bg-white/10 transition-colors cursor-pointer select-none" title="Close (back to Reddit)"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="w-5 h-5"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></div></div><div id="controls" class="fixed inset-x-0 bottom-0 z-30 flex items-center p-3 bg-gradient-to-t from-black/70 to-transparent transition-opacity duration-300"><div class="flex-1 flex items-center justify-start"><button id="sound" class="flex items-center justify-center h-11 w-11 rounded-lg text-white/90 hover:text-white active:text-gold hover:bg-white/10 transition-colors cursor-pointer select-none" title="Sound (m)"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-i="on"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-i="off"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="22" x2="16" y1="9" y2="15"/><line x1="16" x2="22" y1="9" y2="15"/></svg></button></div><div class="flex-1 flex items-center justify-center"><button id="prev" class="flex items-center justify-center h-11 w-11 rounded-lg text-white/90 hover:text-white active:text-gold hover:bg-white/10 transition-colors cursor-pointer select-none" title="Previous"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m12 8-4 4 4 4"/><path d="M16 12H8"/></svg></button><button id="playpause" class="flex items-center justify-center h-11 w-11 rounded-lg text-white/90 hover:text-white active:text-gold hover:bg-white/10 transition-colors cursor-pointer select-none" title="Play / Pause (a)"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-i="play"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-i="pause"><circle cx="12" cy="12" r="10"/><line x1="10" x2="10" y1="15" y2="9"/><line x1="14" x2="14" y1="15" y2="9"/></svg></button><button id="next" class="flex items-center justify-center h-11 w-11 rounded-lg text-white/90 hover:text-white active:text-gold hover:bg-white/10 transition-colors cursor-pointer select-none" title="Next"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m12 16 4-4-4-4"/><path d="M8 12h8"/></svg></button></div><div class="flex-1 flex items-center justify-end"><button id="speed" class="flex items-center justify-center h-11 px-[3px] rounded-lg text-sm text-white/90 hover:text-white active:text-gold hover:bg-white/10 transition-colors cursor-pointer select-none w-[36px] text-center tabular-nums" title="Speed (+/-)">5s</button><button id="order" class="flex items-center justify-center h-11 px-[3px] rounded-lg text-sm text-white/90 hover:text-white active:text-gold hover:bg-white/10 transition-colors cursor-pointer select-none w-[60px] text-center" title="Order (o)">Newest</button></div></div><div id="message" class="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 px-6 text-center bg-black"><div id="msg-loading" class="hidden flex flex-col items-center gap-3"><p id="msg-loading-text" class="text-base text-white/80 tabular-nums">Loading your Reddit&hellip;</p><p id="msg-loading-hint" class="hidden max-w-md text-sm text-white/50">Still loading. Make sure you clicked <span class="text-gold">Reddirama</span> on Reddit.</p><p id="ver-badge" class="text-[11px] text-white/25 tabular-nums">1.1.1</p></div><div id="msg-install" class="hidden flex flex-col items-center gap-4 max-w-md"><h1 class="text-2xl font-semibold tracking-tight">Reddirama</h1><p class="text-sm text-white/60">A fullscreen, hands-free slideshow for Reddit: play any subreddit or profile, your Home feed, or (logged in) your saved, upvoted and custom feeds. To use it, install the userscript, then launch it from Reddit:</p><ol class="text-left text-sm text-white/70 list-decimal list-inside space-y-2"><li>Install the <a class="underline" href="https://apps.apple.com/app/userscripts/id1463298887" target="_blank" rel="noopener">Userscripts</a> app (iOS/Safari) or <a class="underline" href="https://www.tampermonkey.net/" target="_blank" rel="noopener">Tampermonkey</a> (Chrome).</li><li>Add the script from the repo: <a class="text-gold hover:underline" href="https://github.com/Zaaphod42/reddirama" target="_blank" rel="noopener">github.com/Zaaphod42/reddirama</a></li><li>Open <span class="text-white">reddit.com</span> and click <span class="text-gold">Reddirama</span>.</li></ol></div><div id="msg-error" class="hidden flex flex-col items-center gap-3 max-w-md"><p class="text-base text-white/80">Couldn&rsquo;t load from Reddit.</p><p class="text-sm text-white/50">Check your connection and click <span class="text-gold">Reddirama</span> again.</p></div><div id="msg-empty" class="hidden flex flex-col items-center gap-3 max-w-md"><p class="text-base text-white/80">No media found in this source.</p><p class="text-sm text-white/50">Pick another source from the menu, top left.</p></div></div><script>
+@media (prefers-reduced-motion: reduce) { #tapflash.flash, #voteflash.flash { animation-duration: .12s; } }
+</style></head><body class="h-full bg-black text-white overflow-hidden"><div id="stage" class="fixed inset-0 flex items-center justify-center bg-black"></div><div id="tapflash"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-i="play"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-i="pause"><circle cx="12" cy="12" r="10"/><line x1="10" x2="10" y1="15" y2="9"/><line x1="14" x2="14" y1="15" y2="9"/></svg></div><div id="voteflash"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-i="up"><path d="M9 18v-6H5l7-7 7 7h-4v6z"/></svg><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-i="down"><path d="M15 6v6h4l-7 7-7-7h4V6z"/></svg></div><div id="progressTrack" class="fixed inset-x-0 top-0 z-40 h-11" style="touch-action:none;pointer-events:none"><div id="progressTrackInner" class="relative h-[3px] bg-white/15"><div id="progressBar" class="progress-bar absolute inset-y-0 left-0 w-0 bg-gold"></div></div></div><div id="overlay" class="fixed inset-x-0 bottom-16 z-20 px-4 text-center pointer-events-none transition-opacity duration-300" style="text-shadow:0 1px 4px #000"><div class="flex items-center justify-center gap-2"><a id="title" class="text-base font-medium text-white hover:text-gold no-underline pointer-events-auto" href="#" target="_self"></a><button id="bookmark" class="hidden flex-none inline-flex items-center justify-center h-8 w-8 rounded-lg text-white/90 hover:text-white active:text-gold hover:bg-white/10 transition-colors cursor-pointer select-none pointer-events-auto" title="Save (bookmark)"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-i="off" class="w-5 h-5"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-i="on" class="w-5 h-5"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/><path d="m9 10 2 2 4-4"/></svg></button></div><span id="sub" class="block mt-1 text-xs text-white/60"></span></div><div id="topbar" class="fixed inset-x-0 top-0 z-[60] flex items-center justify-between p-3 pointer-events-none transition-opacity duration-300"><div class="relative flex items-center pointer-events-auto"><select id="source-select" class="hidden appearance-none max-w-[45vw] h-9 pl-3 pr-8 rounded-lg bg-white/10 text-sm text-white border border-transparent hover:bg-white/20 focus:outline-none focus:border-white/50 focus:ring-1 focus:ring-white/50 cursor-pointer" title="Source"></select><svg id="source-chevron" class="hidden pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></div><div class="flex items-center pointer-events-auto"><button id="close" class="inline-flex items-center justify-center w-9 h-9 rounded-lg text-white/90 hover:text-white active:text-gold hover:bg-white/10 transition-colors cursor-pointer select-none" title="Close (back to Reddit)"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="w-5 h-5"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></div></div><div id="controls" class="fixed inset-x-0 bottom-0 z-30 flex items-center p-3 bg-gradient-to-t from-black/70 to-transparent transition-opacity duration-300"><div class="flex-1 flex items-center justify-start"><button id="sound" class="flex items-center justify-center h-11 w-11 rounded-lg text-white/90 hover:text-white active:text-gold hover:bg-white/10 transition-colors cursor-pointer select-none" title="Sound (m)"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-i="on"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-i="off"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="22" x2="16" y1="9" y2="15"/><line x1="16" x2="22" y1="9" y2="15"/></svg></button></div><div class="flex-1 flex items-center justify-center"><button id="prev" class="flex items-center justify-center h-11 w-11 rounded-lg text-white/90 hover:text-white active:text-gold hover:bg-white/10 transition-colors cursor-pointer select-none" title="Previous"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m12 8-4 4 4 4"/><path d="M16 12H8"/></svg></button><button id="playpause" class="flex items-center justify-center h-11 w-11 rounded-lg text-white/90 hover:text-white active:text-gold hover:bg-white/10 transition-colors cursor-pointer select-none" title="Play / Pause (a)"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-i="play"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-i="pause"><circle cx="12" cy="12" r="10"/><line x1="10" x2="10" y1="15" y2="9"/><line x1="14" x2="14" y1="15" y2="9"/></svg></button><button id="next" class="flex items-center justify-center h-11 w-11 rounded-lg text-white/90 hover:text-white active:text-gold hover:bg-white/10 transition-colors cursor-pointer select-none" title="Next"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m12 16 4-4-4-4"/><path d="M8 12h8"/></svg></button></div><div class="flex-1 flex items-center justify-end"><button id="speed" class="flex items-center justify-center h-11 px-[3px] rounded-lg text-sm text-white/90 hover:text-white active:text-gold hover:bg-white/10 transition-colors cursor-pointer select-none w-[36px] text-center tabular-nums" title="Speed (+/-)">5s</button><button id="order" class="flex items-center justify-center h-11 px-[3px] rounded-lg text-sm text-white/90 hover:text-white active:text-gold hover:bg-white/10 transition-colors cursor-pointer select-none w-[60px] text-center" title="Order (o)">Newest</button></div></div><div id="message" class="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 px-6 text-center bg-black"><div id="msg-loading" class="hidden flex flex-col items-center gap-3"><p id="msg-loading-text" class="text-base text-white/80 tabular-nums">Loading your Reddit&hellip;</p><p id="msg-loading-hint" class="hidden max-w-md text-sm text-white/50">Still loading. Make sure you clicked <span class="text-gold">Reddirama</span> on Reddit.</p><p id="ver-badge" class="text-[11px] text-white/25 tabular-nums">1.2.0</p></div><div id="msg-install" class="hidden flex flex-col items-center gap-4 max-w-md"><h1 class="text-2xl font-semibold tracking-tight">Reddirama</h1><p class="text-sm text-white/60">A fullscreen, hands-free slideshow for Reddit: play any subreddit or profile, your Home feed, or (logged in) your saved, upvoted and custom feeds. To use it, install the userscript, then launch it from Reddit:</p><ol class="text-left text-sm text-white/70 list-decimal list-inside space-y-2"><li>Install the <a class="underline" href="https://apps.apple.com/app/userscripts/id1463298887" target="_blank" rel="noopener">Userscripts</a> app (iOS/Safari) or <a class="underline" href="https://www.tampermonkey.net/" target="_blank" rel="noopener">Tampermonkey</a> (Chrome).</li><li>Add the script from the repo: <a class="text-gold hover:underline" href="https://github.com/Zaaphod42/reddirama" target="_blank" rel="noopener">github.com/Zaaphod42/reddirama</a></li><li>Open <span class="text-white">reddit.com</span> and click <span class="text-gold">Reddirama</span>.</li></ol></div><div id="msg-error" class="hidden flex flex-col items-center gap-3 max-w-md"><p class="text-base text-white/80">Couldn&rsquo;t load from Reddit.</p><p class="text-sm text-white/50">Check your connection and click <span class="text-gold">Reddirama</span> again.</p></div><div id="msg-empty" class="hidden flex flex-col items-center gap-3 max-w-md"><p class="text-base text-white/80">No media found in this source.</p><p class="text-sm text-white/50">Pick another source from the menu, top left.</p></div></div><script>
 // public/order.js  (ESM — used by the browser AND by the Node tests)
 const CYCLE = ['chrono', 'inverse', 'random'];
 
@@ -147,9 +151,12 @@ const LS = {
  * @param {Function|null} [opts.onRefresh=null] callback for the ⟳ button; if null, the button is hidden
  * @param {Function|null} [opts.onBusy=null] (isBusy, count) => void — "Loading… N" screen (saved Oldest/Shuffle)
  * @param {Function|null} [opts.onSort=null] (sortKey) => void — a feed changes sort (Hot/New/Top): re-fetch
- * @returns {{ beginSource, addItems, markComplete, setItems, state }}
+ * @param {Function|null} [opts.onVote=null] (id, dir, prevDir) => void — swipe up/down voted (dir 1/0/-1); the viewer relays it to the userscript (Reddit /api/vote)
+ * @param {Function|null} [opts.onSave=null] (id, saved) => void — the bookmark was toggled; the viewer relays it to the userscript (Reddit /api/save|unsave)
+ * @param {boolean} [opts.loggedIn=false] whether voting/saving is available (logged-in Reddit session); gates the bookmark + swipe-vote
+ * @returns {{ beginSource, addItems, markComplete, setItems, setVote, setSaved, setLoggedIn, state }}
  */
-function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds = 5, onRefresh = null, onBusy = null, onSort = null, onEmpty = null } = {}) {
+function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds = 5, onRefresh = null, onBusy = null, onSort = null, onEmpty = null, onVote = null, onSave = null, loggedIn = false } = {}) {
   const stage = document.getElementById('stage');
   const progressBar = document.getElementById('progressBar');
   const progressTrack = document.getElementById('progressTrack');      // touch zone (video scrubbing)
@@ -172,6 +179,7 @@ function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds = 5, on
     galleryIndex: 0,
     started: false,             // has the slideshow started rendering slides?
     complete: false,            // have all pages of the current source been received?
+    loggedIn: !!loggedIn,       // gates voting/saving (bookmark visible, swipe-vote active)
     timer: null,
     raf: null,
     progressStart: 0,
@@ -181,7 +189,7 @@ function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds = 5, on
   let chromeTimer = null;
   let introShown = false;
   let chromePinned = false; // keep the chrome visible (no auto-hide) while a sort is loading
-  let dragStartX = null, scrub = null; // #stage gestures: dragStartX = x at pointerdown; scrub = {time,x} during a video scrub
+  let dragStartX = null, dragStartY = null, scrub = null; // #stage gestures: dragStartX/Y = pointer at pointerdown; scrub = during a video scrub
   let scrubLast = null, scrubSent = null; // video scrub: desired target (finger) vs target already sent to the decoder (one-seek-at-a-time coalescing)
 
   // Shuffles once (Fisher-Yates). Used at startup in random mode and when the
@@ -274,6 +282,7 @@ function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds = 5, on
     subEl.innerHTML = '';
     if (item.subreddit) subEl.appendChild(redditLink(item.subreddit, 'https://www.reddit.com/' + item.subreddit, false));
     if (item.author) subEl.appendChild(redditLink('u/' + item.author, 'https://www.reddit.com/user/' + item.author, true));
+    syncBookmark();
     preloadNext();
     // On the VERY 1st slide shown: we display the chrome then let auto-hide take over
     // (subsequent slides don't re-reveal it, otherwise it would flicker on each advance).
@@ -484,6 +493,61 @@ function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds = 5, on
     const speed = btn('speed'); if (speed) speed.textContent = state.seconds + 's';    // 3s / 5s / 10s / 15s
   }
 
+  // --- bookmark (save) + swipe-to-vote ---------------------------------------
+  // Both need a logged-in Reddit session: voting/saving is delegated to the userscript
+  // (the viewer is cross-origin and can't call Reddit's authed API). The viewer wires
+  // onVote/onSave to post the request to the userscript and calls back setVote/setSaved
+  // (to confirm or REVERT on failure). state stays on the item itself (it.saved, it.dir).
+  //
+  // Reflects the CURRENT item's saved state on the #bookmark button: bookmark-check (on)
+  // when saved, plain bookmark (off) otherwise. Hidden entirely when logged out.
+  function syncBookmark() {
+    const b = btn('bookmark');
+    if (!b) return;
+    if (!state.loggedIn) { b.classList.add('hidden'); return; }
+    b.classList.remove('hidden');
+    const it = current();
+    showIcon(b, it && it.saved ? 'on' : 'off');
+  }
+
+  // Toggles the saved state of the CURRENT item: optimistic UI (instant icon swap) then
+  // delegate to the viewer (onSave -> userscript -> Reddit). Reverted via setSaved if it fails.
+  function toggleSave() {
+    const it = current();
+    if (!it || !state.loggedIn) return;
+    const saved = !it.saved;
+    it.saved = saved;
+    syncBookmark();
+    showChrome();                 // keep the UI visible after the tap
+    if (onSave) onSave(it.id, saved);
+  }
+
+  // Swipe up = upvote, swipe down = downvote (mobile). Each is a TOGGLE: swiping the same
+  // way again removes the vote (dir 0), like Reddit's arrows. Optimistic (flash + stored dir),
+  // delegated to the viewer (onVote). dir for Reddit's /api/vote: 1 (up) / 0 (none) / -1 (down).
+  function doVote(direction) {        // direction: +1 (swipe up) | -1 (swipe down)
+    const it = current();
+    if (!it || !state.loggedIn) return;
+    const prevDir = it.dir || 0;
+    const newDir = direction > 0 ? (prevDir === 1 ? 0 : 1) : (prevDir === -1 ? 0 : -1);
+    it.dir = newDir;
+    flashVote(direction, newDir);
+    if (onVote) onVote(it.id, newDir, prevDir);
+  }
+
+  // Center flash for a vote (like the play/pause tapflash): an up/down arrow, gold when the
+  // vote is set upward, periwinkle when set downward, dim white when the vote was removed.
+  const voteflashEl = document.getElementById('voteflash');
+  function flashVote(direction, newDir) {
+    if (!voteflashEl) return;
+    showIcon(voteflashEl, direction > 0 ? 'up' : 'down');
+    const active = newDir === (direction > 0 ? 1 : -1);
+    voteflashEl.style.color = active ? (direction > 0 ? '#FF4500' : '#7193FF') : 'rgba(255,255,255,.55)';
+    voteflashEl.classList.remove('flash');
+    void voteflashEl.offsetWidth;  // reflow: restart the animation even if re-triggered quickly
+    voteflashEl.classList.add('flash');
+  }
+
   // Order/sort button cycle — KIND-DEPENDENT behavior:
   //   • feed  : Hot -> New -> Top. We do NOT reorder client-side: we delegate to opts.onSort,
   //             which re-fetches the feed in that sort (the viewer restarts beginSource + rss-load).
@@ -555,6 +619,8 @@ function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds = 5, on
   btn('order').onclick = cycleOrder;
   btn('speed').onclick = () => cycleSpeed(+1);
   btn('sound').onclick = toggleSound;
+  const bookmarkBtn = btn('bookmark');
+  if (bookmarkBtn) bookmarkBtn.onclick = toggleSave;
   const refreshBtn = btn('refresh');
   if (refreshBtn) {
     if (onRefresh) refreshBtn.onclick = onRefresh;
@@ -634,7 +700,8 @@ function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds = 5, on
   // #progressTrack is purely visual (pointer-events:none); #progressTrackInner thickens
   // during a scrub (visual feedback). UI hiding is always automatic; the center tap toggles; left/
   // right don't reveal it if hidden. Buttons/title link are outside #stage => their clicks stay intact.
-  const SWIPE_MIN = 45;   // wide drag = album swipe (gallery)
+  const SWIPE_MIN = 45;   // wide horizontal drag = album swipe (gallery)
+  const SWIPE_V_MIN = 55; // wide VERTICAL drag = vote (up = upvote, down = downvote)
   const DRAG_MIN = 8;     // beyond this: it's a drag, so not a tap
   const DOUBLE_TAP_MS = 280; // center double-tap window (= pause)
   let lastCenterTap = 0;     // e.timeStamp of the last center tap (to detect the double tap)
@@ -679,7 +746,7 @@ function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds = 5, on
     scrubLast = scrubSent = null;
     if (resume && v) v.play?.().catch(() => {});
   }
-  stage.addEventListener('pointerdown', (e) => { dragStartX = e.clientX; scrub = null; scrubLast = scrubSent = null; }, { passive: true });
+  stage.addEventListener('pointerdown', (e) => { dragStartX = e.clientX; dragStartY = e.clientY; scrub = null; scrubLast = scrubSent = null; }, { passive: true });
   stage.addEventListener('pointermove', (e) => {
     if (dragStartX === null) return;
     const it = current();
@@ -704,11 +771,20 @@ function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds = 5, on
   stage.addEventListener('pointerup', (e) => {
     if (dragStartX === null) return;
     const dx = e.clientX - dragStartX;
+    const dy = e.clientY - (dragStartY === null ? e.clientY : dragStartY);
     const wasScrub = !!scrub;
-    dragStartX = null;
+    dragStartX = null; dragStartY = null;
     if (wasScrub) { endVideoScrub(true); return; }               // end of a video scrub
     const it = current();
-    if (Math.abs(dx) > SWIPE_MIN) {                              // wide drag
+    // VERTICAL swipe = VOTE (up = upvote, down = downvote). Must dominate the horizontal
+    // movement (so it isn't confused with an album swipe) and clear SWIPE_V_MIN. Videos: a
+    // horizontal drag already scrubbed (handled above), a vertical drag never scrubs => votes here.
+    if (Math.abs(dy) > SWIPE_V_MIN && Math.abs(dy) > Math.abs(dx)) {
+      doVote(dy < 0 ? 1 : -1);
+      if (chromeVisible()) armIdle();
+      return;
+    }
+    if (Math.abs(dx) > SWIPE_MIN) {                              // wide horizontal drag
       if (it && it.type === 'gallery') { advance(dx < 0 ? 1 : -1, true); if (chromeVisible()) armIdle(); } // album swipe
       return;                                                    // simple image / other: a drag doesn't navigate
     }
@@ -821,6 +897,24 @@ function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds = 5, on
       state.complete = true;     // set provided in one block => considered complete
       maybeStart();
     },
+    // Authoritative vote state from the userscript (Reddit confirmed it, or REVERT on failure).
+    // No persistent icon for votes (only the swipe flash), so we just store dir on the item.
+    setVote(id, dir) {
+      const it = state.raw.find((x) => x && x.id === id);
+      if (it) it.dir = dir;
+    },
+    // Authoritative saved state from the userscript (confirm, or REVERT on failure): update the
+    // item and, if it's the one on screen, refresh the bookmark icon.
+    setSaved(id, saved) {
+      const it = state.raw.find((x) => x && x.id === id);
+      if (it) it.saved = saved;
+      if (current() && current().id === id) syncBookmark();
+    },
+    // Enables/disables voting+saving (logged-in session). Toggles the bookmark visibility.
+    setLoggedIn(v) {
+      state.loggedIn = !!v;
+      syncBookmark();
+    },
     state,
   };
 }
@@ -856,7 +950,7 @@ function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds = 5, on
   try {
     var _us = new URLSearchParams(location.search).get('us');
     var _vb = document.getElementById('ver-badge');
-    var _v = '1.1.1';
+    var _v = '1.2.0';
     if (_vb) _vb.textContent = (_us && _us !== _v) ? (_v + ' / us ' + _us) : _v;
   } catch (e) {}
 
@@ -866,6 +960,9 @@ function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds = 5, on
   // rss-items/rss-done batches of ANOTHER source (late replies) are ignored (anti-mixing).
   var currentSourceId = 'home';
   var currentKind = 'feed';
+  // Whether the Reddit session is logged in (set by rss-sources): gates voting/saving in the
+  // slideshow (bookmark button + swipe-to-vote). Logged out => those are hidden/inert.
+  var loggedIn = false;
   // Map id -> kind, filled by rss-sources (to recover the kind when the source changes).
   var kindById = { home: 'feed' };
 
@@ -933,9 +1030,21 @@ function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds = 5, on
     requestLoad(sort);
   }
 
-  // Creates the slideshow on first need (passes the busy/sort callbacks + the current kind).
+  // Relays a vote/save request to the userscript (which holds the Reddit session and calls the
+  // authed API on its origin). The viewer is cross-origin, so it cannot call Reddit directly.
+  function sendInteract(payload) {
+    if (window.opener && redditOrigin) {
+      try { window.opener.postMessage(payload, redditOrigin); } catch (e) {}
+    }
+  }
+  // onVote(id, dir, prevDir) — swipe up/down. We post it; the userscript replies rss-vote-result
+  // (we revert to prevDir on failure). onSave(id, saved) — bookmark toggle (rss-save-result).
+  function onVote(id, dir, prevDir) { sendInteract({ type: 'rss-vote', id: id, dir: dir, prevDir: prevDir }); }
+  function onSave(id, saved) { sendInteract({ type: 'rss-save', id: id, saved: saved }); }
+
+  // Creates the slideshow on first need (passes the busy/sort/vote/save callbacks + the current kind).
   function ensureHandle() {
-    if (!handle) handle = startSlideshow({ items: [], kind: currentKind, feedSorts: feedSortsFor(currentSourceId), slideSeconds: 5, onBusy: onBusy, onSort: onSort, onEmpty: onEmpty });
+    if (!handle) handle = startSlideshow({ items: [], kind: currentKind, feedSorts: feedSortsFor(currentSourceId), slideSeconds: 5, onBusy: onBusy, onSort: onSort, onEmpty: onEmpty, onVote: onVote, onSave: onSave, loggedIn: loggedIn });
     return handle;
   }
 
@@ -947,7 +1056,7 @@ function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds = 5, on
     try {
       if (!handle || !handle.state || !handle.state.raw.length) return;
       var sources = select ? Array.prototype.map.call(select.options, function (o) { return { id: o.value, label: o.textContent, kind: kindById[o.value] || 'saved' }; }) : [];
-      sessionStorage.setItem('rss_cache', JSON.stringify({ sources: sources, currentSourceId: currentSourceId, currentKind: currentKind, items: handle.state.raw.slice(0, 400) }));
+      sessionStorage.setItem('rss_cache', JSON.stringify({ sources: sources, currentSourceId: currentSourceId, currentKind: currentKind, loggedIn: loggedIn, items: handle.state.raw.slice(0, 400) }));
     } catch (e) { /* quota / unavailable: we ignore */ }
   }
   function restoreFromCache() {
@@ -963,11 +1072,13 @@ function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds = 5, on
     });
     currentSourceId = cache.currentSourceId || 'home';
     currentKind = cache.currentKind || kindById[currentSourceId] || 'saved';
+    loggedIn = !!cache.loggedIn;
     if (select && (cache.sources || []).length) {
       select.value = currentSourceId; select.classList.remove('hidden');
       var chev = document.getElementById('source-chevron'); if (chev) chev.classList.remove('hidden');
     }
     var h = ensureHandle();
+    h.setLoggedIn(loggedIn);
     h.beginSource({ kind: currentKind, feedSorts: feedSortsFor(currentSourceId) });
     h.addItems(cache.items);
     h.markComplete();
@@ -1040,11 +1151,25 @@ function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds = 5, on
       });
       currentSourceId = d.current || 'saved';
       currentKind = kindById[currentSourceId] || 'saved';
+      loggedIn = !!d.loggedIn; // userscript tells us if voting/saving is available
       if (select) { select.value = currentSourceId; select.classList.remove('hidden'); } // visible once populated
       var chevron = document.getElementById('source-chevron'); if (chevron) chevron.classList.remove('hidden'); // chevron revealed with the dropdown
       var h = ensureHandle();
+      h.setLoggedIn(loggedIn); // reveal/hide the bookmark + enable swipe-to-vote accordingly
       // beginSource ONLY if the effective kind changes (avoids wiping a batch in flight).
       if (h.state.kind !== currentKind) h.beginSource({ kind: currentKind, feedSorts: feedSortsFor(currentSourceId) });
+      saveCache();
+      return;
+    }
+    // Vote/save outcome from the userscript. On SUCCESS the optimistic UI already matches; on
+    // FAILURE we REVERT (vote -> prevDir, save -> the opposite of what we attempted).
+    if (d.type === 'rss-vote-result') {
+      if (handle && !d.ok) handle.setVote(d.id, d.prevDir || 0);
+      saveCache();
+      return;
+    }
+    if (d.type === 'rss-save-result') {
+      if (handle && !d.ok) handle.setSaved(d.id, !d.saved);
       saveCache();
       return;
     }

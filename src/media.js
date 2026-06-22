@@ -16,6 +16,11 @@ function base(p) {
     subreddit: p.subreddit_name_prefixed ?? (p.subreddit ? `r/${p.subreddit}` : ''),
     author: p.author ?? '',
     nsfw: !!p.over_18,
+    // Interaction state carried from Reddit so the viewer can show the right bookmark
+    // (saved) and remember the current vote (likes: true=up, false=down, null=none) for the
+    // swipe-to-vote toggle. dir is the numeric vote used by the /api/vote endpoint (1/0/-1).
+    saved: !!p.saved,
+    dir: p.likes === true ? 1 : (p.likes === false ? -1 : 0),
   };
 }
 

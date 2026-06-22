@@ -23,6 +23,11 @@ function base(p) {
     subreddit: p.subreddit_name_prefixed ?? (p.subreddit ? `r/${p.subreddit}` : ''),
     author: p.author ?? '',
     nsfw: !!p.over_18,
+    // Interaction state carried from Reddit so the viewer can show the right bookmark
+    // (saved) and remember the current vote (likes: true=up, false=down, null=none) for the
+    // swipe-to-vote toggle. dir is the numeric vote used by the /api/vote endpoint (1/0/-1).
+    saved: !!p.saved,
+    dir: p.likes === true ? 1 : (p.likes === false ? -1 : 0),
   };
 }
 
@@ -116,6 +121,7 @@ function normalizeSaved(children) {
   function getUsername() {
     return fetchJson('https://www.reddit.com/api/me.json').then(function (me) {
       var name = (me && me.data && me.data.name) || me.name;
+      if (me && me.data && me.data.modhash) cachedModhash = me.data.modhash;
       if (!name) throw new Error('not_logged_in');
       return name;
     });
@@ -123,13 +129,20 @@ function normalizeSaved(children) {
   // Login check IN THE BACKGROUND, run once when the script loads. Lets us decide
   // SYNCHRONOUSLY (on click) whether to open the viewer: if we know the user is
   // logged out, we open no window (otherwise a stuck black tab). cachedName = name or null.
+  // We also grab the modhash here: it's the CSRF token Reddit requires for vote/save (sent as
+  // the X-Modhash header / uh param on those POSTs, alongside the session cookie).
   var cachedName = null;
+  var cachedModhash = null;
   var meChecked = false;
   var meCheck = fetch('https://www.reddit.com/api/me.json', { credentials: 'include', headers: { Accept: 'application/json' } })
     .then(function (r) { return r.ok ? r.json() : null; })
-    .then(function (d) { return (d && d.data && d.data.name) || null; })
+    .then(function (d) {
+      cachedName = (d && d.data && d.data.name) || null;
+      cachedModhash = (d && d.data && d.data.modhash) || null;
+      return cachedName;
+    })
     .catch(function () { return null; });
-  meCheck.then(function (name) { cachedName = name; meChecked = true; });
+  meCheck.then(function () { meChecked = true; });
   // --- multi-source state ---
   // viewerWin  : reference to the opened viewer tab (target of the postMessages).
   // resolvedName : resolved username (reused by source reloads).
@@ -139,6 +152,7 @@ function normalizeSaved(children) {
   //   source as soon as another is requested (anti-mixing when switching quickly).
   var viewerWin = null;
   var resolvedName = null;
+  var resolvedModhash = null; // CSRF modhash for vote/save (resolved on launch, from me.json)
   var currentGen = 0;
   // Small dark toast near the button (white text, ~5 s then auto-removed). Used for the
   // "not logged in" case: we warn ON the Reddit page instead of opening an empty tab.
@@ -249,15 +263,62 @@ function normalizeSaved(children) {
       return [];
     }
   }
-  // Listens for the viewer's requests (different origin). On each {type:'rss-load', id, sort?}, we
-  // bump the generation and (re)load the requested source (sort read for feeds: hot/new/top).
-  // e.source === viewerWin guarantees the message really comes from OUR viewer tab.
+  // Sends a reply (vote/save outcome) back to the viewer tab.
+  function replyToViewer(payload) {
+    if (viewerWin) { try { viewerWin.postMessage(payload, VIEWER_ORIGIN); } catch (e) {} }
+  }
+  // Resolves the modhash (CSRF token) needed by vote/save. Uses the one grabbed at launch; if it's
+  // missing (e.g. the background check failed), fetches me.json once more. Tolerant: '' on failure.
+  function ensureModhash() {
+    if (resolvedModhash) return Promise.resolve(resolvedModhash);
+    return fetchJson('https://www.reddit.com/api/me.json')
+      .then(function (me) { resolvedModhash = (me && me.data && me.data.modhash) || ''; return resolvedModhash; })
+      .catch(function () { return ''; });
+  }
+  // POSTs a form to Reddit with the session cookie + modhash (X-Modhash header AND uh param, which
+  // is what the legacy vote/save endpoints expect). Returns the fetch promise.
+  function postForm(url, body, uh) {
+    return fetch(url, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Modhash': uh || '' },
+      body: body,
+    });
+  }
+  // Vote on a post (id = fullname t3_xxx; dir = 1 up / 0 none / -1 down). Replies rss-vote-result
+  // so the viewer can confirm or revert (prevDir) its optimistic UI.
+  function doVote(id, dir, prevDir) {
+    ensureModhash().then(function (uh) {
+      var body = 'id=' + encodeURIComponent(id) + '&dir=' + encodeURIComponent(dir) + '&uh=' + encodeURIComponent(uh) + '&api_type=json';
+      return postForm('https://www.reddit.com/api/vote', body, uh);
+    }).then(function (r) {
+      replyToViewer({ type: 'rss-vote-result', id: id, dir: dir, prevDir: prevDir, ok: !!(r && r.ok) });
+    }).catch(function () {
+      replyToViewer({ type: 'rss-vote-result', id: id, dir: dir, prevDir: prevDir, ok: false });
+    });
+  }
+  // Save / unsave a post (id = fullname). Replies rss-save-result (the viewer reverts on failure).
+  function doSave(id, saved) {
+    ensureModhash().then(function (uh) {
+      var url = saved ? 'https://www.reddit.com/api/save' : 'https://www.reddit.com/api/unsave';
+      var body = 'id=' + encodeURIComponent(id) + '&uh=' + encodeURIComponent(uh);
+      return postForm(url, body, uh);
+    }).then(function (r) {
+      replyToViewer({ type: 'rss-save-result', id: id, saved: saved, ok: !!(r && r.ok) });
+    }).catch(function () {
+      replyToViewer({ type: 'rss-save-result', id: id, saved: saved, ok: false });
+    });
+  }
+  // Listens for the viewer's requests (different origin). rss-load (re)loads a source; rss-vote /
+  // rss-save perform the authed Reddit action on this origin (the viewer can't). e.source ===
+  // viewerWin guarantees the message really comes from OUR viewer tab.
   window.addEventListener('message', function (e) {
     var d = e.data;
-    if (!d || d.type !== 'rss-load' || !d.id) return;
+    if (!d || !d.type) return;
     if (viewerWin && e.source !== viewerWin) return; // ignore other windows
-    currentGen++;
-    loadSource(d.id, d.sort, currentGen);
+    if (d.type === 'rss-load' && d.id) { currentGen++; loadSource(d.id, d.sort, currentGen); return; }
+    if (d.type === 'rss-vote' && d.id) { doVote(d.id, d.dir, d.prevDir); return; }
+    if (d.type === 'rss-save' && d.id) { doSave(d.id, d.saved); return; }
   });
   // primary (optional): source placed AT THE TOP of the dropdown and opened immediately (r/ and u/ buttons).
   //   {id,label,kind}; without it, we open Home by default (the Reddirama button's behavior).
@@ -272,7 +333,7 @@ function normalizeSaved(children) {
     // Cache-bust (?v=timestamp): forces the browser to load the LATEST viewer version on every
     // launch. Without it, the cached HTML (GitHub Pages ~10 min, aggressive Safari) hides viewer
     // updates (e.g. a sound fix). The origin stays the same => the postMessages still work.
-    var US_BUILD = '1.1.1'; // userscript version, passed to the viewer (?us=) for the version badge (cache diag)
+    var US_BUILD = '1.2.0'; // userscript version, passed to the viewer (?us=) for the version badge (cache diag)
     var win = window.open(VIEWER_URL + '?v=' + Date.now() + '&us=' + US_BUILD, '_blank');
     if (!win) {
       if (btn && btn.id === 'rss-launch') { btn.textContent = '\u2192 Allow pop-ups, then retry'; setTimeout(function () { btn.textContent = orig; }, 3000); }
@@ -290,6 +351,7 @@ function normalizeSaved(children) {
       var name = cachedName;
       if (name === null && !meChecked) { try { name = await getUsername(); } catch (e) { name = null; } }
       resolvedName = name;
+      resolvedModhash = cachedModhash; // for vote/save (ensureModhash re-fetches if still null)
       // 3) Sources depending on the login state. LOGGED IN: Home + Upvoted + Saved + personal feeds (kind
       //    drives the viewer's order/sort button). LOGGED OUT: PUBLIC only (Popular).
       var POPULAR = { id: 'feed:/r/popular/', label: 'Popular', kind: 'feed' };

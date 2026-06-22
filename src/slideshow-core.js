@@ -49,9 +49,12 @@ const LS = {
  * @param {Function|null} [opts.onRefresh=null] callback for the ⟳ button; if null, the button is hidden
  * @param {Function|null} [opts.onBusy=null] (isBusy, count) => void — "Loading… N" screen (saved Oldest/Shuffle)
  * @param {Function|null} [opts.onSort=null] (sortKey) => void — a feed changes sort (Hot/New/Top): re-fetch
- * @returns {{ beginSource, addItems, markComplete, setItems, state }}
+ * @param {Function|null} [opts.onVote=null] (id, dir, prevDir) => void — swipe up/down voted (dir 1/0/-1); the viewer relays it to the userscript (Reddit /api/vote)
+ * @param {Function|null} [opts.onSave=null] (id, saved) => void — the bookmark was toggled; the viewer relays it to the userscript (Reddit /api/save|unsave)
+ * @param {boolean} [opts.loggedIn=false] whether voting/saving is available (logged-in Reddit session); gates the bookmark + swipe-vote
+ * @returns {{ beginSource, addItems, markComplete, setItems, setVote, setSaved, setLoggedIn, state }}
  */
-export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds = 5, onRefresh = null, onBusy = null, onSort = null, onEmpty = null } = {}) {
+export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds = 5, onRefresh = null, onBusy = null, onSort = null, onEmpty = null, onVote = null, onSave = null, loggedIn = false } = {}) {
   const stage = document.getElementById('stage');
   const progressBar = document.getElementById('progressBar');
   const progressTrack = document.getElementById('progressTrack');      // touch zone (video scrubbing)
@@ -74,6 +77,7 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
     galleryIndex: 0,
     started: false,             // has the slideshow started rendering slides?
     complete: false,            // have all pages of the current source been received?
+    loggedIn: !!loggedIn,       // gates voting/saving (bookmark visible, swipe-vote active)
     timer: null,
     raf: null,
     progressStart: 0,
@@ -83,7 +87,7 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
   let chromeTimer = null;
   let introShown = false;
   let chromePinned = false; // keep the chrome visible (no auto-hide) while a sort is loading
-  let dragStartX = null, scrub = null; // #stage gestures: dragStartX = x at pointerdown; scrub = {time,x} during a video scrub
+  let dragStartX = null, dragStartY = null, scrub = null; // #stage gestures: dragStartX/Y = pointer at pointerdown; scrub = during a video scrub
   let scrubLast = null, scrubSent = null; // video scrub: desired target (finger) vs target already sent to the decoder (one-seek-at-a-time coalescing)
 
   // Shuffles once (Fisher-Yates). Used at startup in random mode and when the
@@ -176,6 +180,7 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
     subEl.innerHTML = '';
     if (item.subreddit) subEl.appendChild(redditLink(item.subreddit, 'https://www.reddit.com/' + item.subreddit, false));
     if (item.author) subEl.appendChild(redditLink('u/' + item.author, 'https://www.reddit.com/user/' + item.author, true));
+    syncBookmark();
     preloadNext();
     // On the VERY 1st slide shown: we display the chrome then let auto-hide take over
     // (subsequent slides don't re-reveal it, otherwise it would flicker on each advance).
@@ -386,6 +391,61 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
     const speed = btn('speed'); if (speed) speed.textContent = state.seconds + 's';    // 3s / 5s / 10s / 15s
   }
 
+  // --- bookmark (save) + swipe-to-vote ---------------------------------------
+  // Both need a logged-in Reddit session: voting/saving is delegated to the userscript
+  // (the viewer is cross-origin and can't call Reddit's authed API). The viewer wires
+  // onVote/onSave to post the request to the userscript and calls back setVote/setSaved
+  // (to confirm or REVERT on failure). state stays on the item itself (it.saved, it.dir).
+  //
+  // Reflects the CURRENT item's saved state on the #bookmark button: bookmark-check (on)
+  // when saved, plain bookmark (off) otherwise. Hidden entirely when logged out.
+  function syncBookmark() {
+    const b = btn('bookmark');
+    if (!b) return;
+    if (!state.loggedIn) { b.classList.add('hidden'); return; }
+    b.classList.remove('hidden');
+    const it = current();
+    showIcon(b, it && it.saved ? 'on' : 'off');
+  }
+
+  // Toggles the saved state of the CURRENT item: optimistic UI (instant icon swap) then
+  // delegate to the viewer (onSave -> userscript -> Reddit). Reverted via setSaved if it fails.
+  function toggleSave() {
+    const it = current();
+    if (!it || !state.loggedIn) return;
+    const saved = !it.saved;
+    it.saved = saved;
+    syncBookmark();
+    showChrome();                 // keep the UI visible after the tap
+    if (onSave) onSave(it.id, saved);
+  }
+
+  // Swipe up = upvote, swipe down = downvote (mobile). Each is a TOGGLE: swiping the same
+  // way again removes the vote (dir 0), like Reddit's arrows. Optimistic (flash + stored dir),
+  // delegated to the viewer (onVote). dir for Reddit's /api/vote: 1 (up) / 0 (none) / -1 (down).
+  function doVote(direction) {        // direction: +1 (swipe up) | -1 (swipe down)
+    const it = current();
+    if (!it || !state.loggedIn) return;
+    const prevDir = it.dir || 0;
+    const newDir = direction > 0 ? (prevDir === 1 ? 0 : 1) : (prevDir === -1 ? 0 : -1);
+    it.dir = newDir;
+    flashVote(direction, newDir);
+    if (onVote) onVote(it.id, newDir, prevDir);
+  }
+
+  // Center flash for a vote (like the play/pause tapflash): an up/down arrow, gold when the
+  // vote is set upward, periwinkle when set downward, dim white when the vote was removed.
+  const voteflashEl = document.getElementById('voteflash');
+  function flashVote(direction, newDir) {
+    if (!voteflashEl) return;
+    showIcon(voteflashEl, direction > 0 ? 'up' : 'down');
+    const active = newDir === (direction > 0 ? 1 : -1);
+    voteflashEl.style.color = active ? (direction > 0 ? '#FF4500' : '#7193FF') : 'rgba(255,255,255,.55)';
+    voteflashEl.classList.remove('flash');
+    void voteflashEl.offsetWidth;  // reflow: restart the animation even if re-triggered quickly
+    voteflashEl.classList.add('flash');
+  }
+
   // Order/sort button cycle — KIND-DEPENDENT behavior:
   //   • feed  : Hot -> New -> Top. We do NOT reorder client-side: we delegate to opts.onSort,
   //             which re-fetches the feed in that sort (the viewer restarts beginSource + rss-load).
@@ -457,6 +517,8 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
   btn('order').onclick = cycleOrder;
   btn('speed').onclick = () => cycleSpeed(+1);
   btn('sound').onclick = toggleSound;
+  const bookmarkBtn = btn('bookmark');
+  if (bookmarkBtn) bookmarkBtn.onclick = toggleSave;
   const refreshBtn = btn('refresh');
   if (refreshBtn) {
     if (onRefresh) refreshBtn.onclick = onRefresh;
@@ -536,7 +598,8 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
   // #progressTrack is purely visual (pointer-events:none); #progressTrackInner thickens
   // during a scrub (visual feedback). UI hiding is always automatic; the center tap toggles; left/
   // right don't reveal it if hidden. Buttons/title link are outside #stage => their clicks stay intact.
-  const SWIPE_MIN = 45;   // wide drag = album swipe (gallery)
+  const SWIPE_MIN = 45;   // wide horizontal drag = album swipe (gallery)
+  const SWIPE_V_MIN = 55; // wide VERTICAL drag = vote (up = upvote, down = downvote)
   const DRAG_MIN = 8;     // beyond this: it's a drag, so not a tap
   const DOUBLE_TAP_MS = 280; // center double-tap window (= pause)
   let lastCenterTap = 0;     // e.timeStamp of the last center tap (to detect the double tap)
@@ -581,7 +644,7 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
     scrubLast = scrubSent = null;
     if (resume && v) v.play?.().catch(() => {});
   }
-  stage.addEventListener('pointerdown', (e) => { dragStartX = e.clientX; scrub = null; scrubLast = scrubSent = null; }, { passive: true });
+  stage.addEventListener('pointerdown', (e) => { dragStartX = e.clientX; dragStartY = e.clientY; scrub = null; scrubLast = scrubSent = null; }, { passive: true });
   stage.addEventListener('pointermove', (e) => {
     if (dragStartX === null) return;
     const it = current();
@@ -606,11 +669,20 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
   stage.addEventListener('pointerup', (e) => {
     if (dragStartX === null) return;
     const dx = e.clientX - dragStartX;
+    const dy = e.clientY - (dragStartY === null ? e.clientY : dragStartY);
     const wasScrub = !!scrub;
-    dragStartX = null;
+    dragStartX = null; dragStartY = null;
     if (wasScrub) { endVideoScrub(true); return; }               // end of a video scrub
     const it = current();
-    if (Math.abs(dx) > SWIPE_MIN) {                              // wide drag
+    // VERTICAL swipe = VOTE (up = upvote, down = downvote). Must dominate the horizontal
+    // movement (so it isn't confused with an album swipe) and clear SWIPE_V_MIN. Videos: a
+    // horizontal drag already scrubbed (handled above), a vertical drag never scrubs => votes here.
+    if (Math.abs(dy) > SWIPE_V_MIN && Math.abs(dy) > Math.abs(dx)) {
+      doVote(dy < 0 ? 1 : -1);
+      if (chromeVisible()) armIdle();
+      return;
+    }
+    if (Math.abs(dx) > SWIPE_MIN) {                              // wide horizontal drag
       if (it && it.type === 'gallery') { advance(dx < 0 ? 1 : -1, true); if (chromeVisible()) armIdle(); } // album swipe
       return;                                                    // simple image / other: a drag doesn't navigate
     }
@@ -722,6 +794,24 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
       state.started = false;
       state.complete = true;     // set provided in one block => considered complete
       maybeStart();
+    },
+    // Authoritative vote state from the userscript (Reddit confirmed it, or REVERT on failure).
+    // No persistent icon for votes (only the swipe flash), so we just store dir on the item.
+    setVote(id, dir) {
+      const it = state.raw.find((x) => x && x.id === id);
+      if (it) it.dir = dir;
+    },
+    // Authoritative saved state from the userscript (confirm, or REVERT on failure): update the
+    // item and, if it's the one on screen, refresh the bookmark icon.
+    setSaved(id, saved) {
+      const it = state.raw.find((x) => x && x.id === id);
+      if (it) it.saved = saved;
+      if (current() && current().id === id) syncBookmark();
+    },
+    // Enables/disables voting+saving (logged-in session). Toggles the bookmark visibility.
+    setLoggedIn(v) {
+      state.loggedIn = !!v;
+      syncBookmark();
     },
     state,
   };

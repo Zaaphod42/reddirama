@@ -19,7 +19,7 @@ const VIEWER_URL = 'https://zaaphod42.github.io/reddirama/';
 const VIEWER_ORIGIN = 'https://zaaphod42.github.io';
 // VIEWER build number, shown small and unobtrusive on the loading screen: lets Seb
 // VERIFY that he is seeing the latest version (and not a cached one). Bump this on every viewer build.
-const VIEWER_BUILD = '1.1.1';
+const VIEWER_BUILD = '1.2.0';
 
 const mediaSrc = strip(read('src/media.js'));            // normalizeSaved (userscript, reddit side)
 const orderSrc = strip(read('src/order.js'));            // nextMode / orderItems (viewer)
@@ -74,6 +74,9 @@ const viewerBoot = `
   // rss-items/rss-done batches of ANOTHER source (late replies) are ignored (anti-mixing).
   var currentSourceId = 'home';
   var currentKind = 'feed';
+  // Whether the Reddit session is logged in (set by rss-sources): gates voting/saving in the
+  // slideshow (bookmark button + swipe-to-vote). Logged out => those are hidden/inert.
+  var loggedIn = false;
   // Map id -> kind, filled by rss-sources (to recover the kind when the source changes).
   var kindById = { home: 'feed' };
 
@@ -141,9 +144,21 @@ const viewerBoot = `
     requestLoad(sort);
   }
 
-  // Creates the slideshow on first need (passes the busy/sort callbacks + the current kind).
+  // Relays a vote/save request to the userscript (which holds the Reddit session and calls the
+  // authed API on its origin). The viewer is cross-origin, so it cannot call Reddit directly.
+  function sendInteract(payload) {
+    if (window.opener && redditOrigin) {
+      try { window.opener.postMessage(payload, redditOrigin); } catch (e) {}
+    }
+  }
+  // onVote(id, dir, prevDir) — swipe up/down. We post it; the userscript replies rss-vote-result
+  // (we revert to prevDir on failure). onSave(id, saved) — bookmark toggle (rss-save-result).
+  function onVote(id, dir, prevDir) { sendInteract({ type: 'rss-vote', id: id, dir: dir, prevDir: prevDir }); }
+  function onSave(id, saved) { sendInteract({ type: 'rss-save', id: id, saved: saved }); }
+
+  // Creates the slideshow on first need (passes the busy/sort/vote/save callbacks + the current kind).
   function ensureHandle() {
-    if (!handle) handle = startSlideshow({ items: [], kind: currentKind, feedSorts: feedSortsFor(currentSourceId), slideSeconds: 5, onBusy: onBusy, onSort: onSort, onEmpty: onEmpty });
+    if (!handle) handle = startSlideshow({ items: [], kind: currentKind, feedSorts: feedSortsFor(currentSourceId), slideSeconds: 5, onBusy: onBusy, onSort: onSort, onEmpty: onEmpty, onVote: onVote, onSave: onSave, loggedIn: loggedIn });
     return handle;
   }
 
@@ -155,7 +170,7 @@ const viewerBoot = `
     try {
       if (!handle || !handle.state || !handle.state.raw.length) return;
       var sources = select ? Array.prototype.map.call(select.options, function (o) { return { id: o.value, label: o.textContent, kind: kindById[o.value] || 'saved' }; }) : [];
-      sessionStorage.setItem('rss_cache', JSON.stringify({ sources: sources, currentSourceId: currentSourceId, currentKind: currentKind, items: handle.state.raw.slice(0, 400) }));
+      sessionStorage.setItem('rss_cache', JSON.stringify({ sources: sources, currentSourceId: currentSourceId, currentKind: currentKind, loggedIn: loggedIn, items: handle.state.raw.slice(0, 400) }));
     } catch (e) { /* quota / unavailable: we ignore */ }
   }
   function restoreFromCache() {
@@ -171,11 +186,13 @@ const viewerBoot = `
     });
     currentSourceId = cache.currentSourceId || 'home';
     currentKind = cache.currentKind || kindById[currentSourceId] || 'saved';
+    loggedIn = !!cache.loggedIn;
     if (select && (cache.sources || []).length) {
       select.value = currentSourceId; select.classList.remove('hidden');
       var chev = document.getElementById('source-chevron'); if (chev) chev.classList.remove('hidden');
     }
     var h = ensureHandle();
+    h.setLoggedIn(loggedIn);
     h.beginSource({ kind: currentKind, feedSorts: feedSortsFor(currentSourceId) });
     h.addItems(cache.items);
     h.markComplete();
@@ -248,11 +265,25 @@ const viewerBoot = `
       });
       currentSourceId = d.current || 'saved';
       currentKind = kindById[currentSourceId] || 'saved';
+      loggedIn = !!d.loggedIn; // userscript tells us if voting/saving is available
       if (select) { select.value = currentSourceId; select.classList.remove('hidden'); } // visible once populated
       var chevron = document.getElementById('source-chevron'); if (chevron) chevron.classList.remove('hidden'); // chevron revealed with the dropdown
       var h = ensureHandle();
+      h.setLoggedIn(loggedIn); // reveal/hide the bookmark + enable swipe-to-vote accordingly
       // beginSource ONLY if the effective kind changes (avoids wiping a batch in flight).
       if (h.state.kind !== currentKind) h.beginSource({ kind: currentKind, feedSorts: feedSortsFor(currentSourceId) });
+      saveCache();
+      return;
+    }
+    // Vote/save outcome from the userscript. On SUCCESS the optimistic UI already matches; on
+    // FAILURE we REVERT (vote -> prevDir, save -> the opposite of what we attempted).
+    if (d.type === 'rss-vote-result') {
+      if (handle && !d.ok) handle.setVote(d.id, d.prevDir || 0);
+      saveCache();
+      return;
+    }
+    if (d.type === 'rss-save-result') {
+      if (handle && !d.ok) handle.setSaved(d.id, !d.saved);
       saveCache();
       return;
     }
@@ -289,6 +320,14 @@ const ICON = {
   soundOn: svg('<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>', 'data-i="on"'), // volume-2 (sound on)
   soundOff: svg('<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="22" x2="16" y1="9" y2="15"/><line x1="16" x2="22" y1="9" y2="15"/>', 'data-i="off"'), // volume-x (muted)
   close: svg('<path d="M18 6 6 18"/><path d="m6 6 12 12"/>', 'class="w-5 h-5"'), // x (Lucide): closes the module, back to Reddit; w-5 h-5 forces 1:1 inside the square button
+  // Bookmark (Lucide): the OUTLINE shows when the post is NOT saved, the CHECK variant when it IS.
+  // 2-state via data-i (slideshow-core.showIcon swaps them). w-5 h-5 keeps them at 1:1 in the button.
+  bookmark: svg('<path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/>', 'data-i="off" class="w-5 h-5"'),       // bookmark (not saved)
+  bookmarkCheck: svg('<path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/><path d="m9 10 2 2 4-4"/>', 'data-i="on" class="w-5 h-5"'), // bookmark-check (saved)
+  // Big arrows (Lucide arrow-big-up / arrow-big-down) for the swipe-to-vote center flash
+  // (#voteflash), echoing the big play/pause flash; sized by CSS, coloured inline.
+  arrowUp: svg('<path d="M9 18v-6H5l7-7 7 7h-4v6z"/>', 'data-i="up"'),     // arrow-big-up (upvote)
+  arrowDown: svg('<path d="M15 6v6h4l-7 7-7-7h4V6z"/>', 'data-i="down"'),  // arrow-big-down (downvote)
 };
 
 // ICON button: touch target >= 44px (h-11 w-11), no text, pointer cursor, gold accent on hover/press.
@@ -367,6 +406,8 @@ const viewerHtml =
   // Centered icon flash (play/pause feedback on tap): a large play OR pause icon, animated by .flash
   // (see slideshow.css). showIcon (core) picks which one to show. pointer-events:none => intercepts nothing.
   + '<div id="tapflash">' + ICON.play + ICON.pause + '</div>'
+  // Center flash for the swipe-to-vote gesture (arrow up/down), animated by .flash like #tapflash.
+  + '<div id="voteflash">' + ICON.arrowUp + ICON.arrowDown + '</div>'
   // Progress bar (top, gold). #progressTrack = touch zone (12px, pointer-events
   // enabled only on a video, see render); on touch, #progressTrackInner thickens to
   // 44px (see slideshow.css) and we seek within the video. The width of #progressBar is animated.
@@ -377,7 +418,12 @@ const viewerHtml =
   + '</div>'
   // Title / subreddit overlay (subtle white, gold link).
   + '<div id="overlay" class="fixed inset-x-0 bottom-16 z-20 px-4 text-center pointer-events-none transition-opacity duration-300" style="text-shadow:0 1px 4px #000">'
-    + '<a id="title" class="text-base font-medium text-white hover:text-gold no-underline pointer-events-auto" href="#" target="_self"></a>'
+    // Title + a Lucide bookmark button to its right (save / unsave). The button is hidden until we
+    // know the user is logged in (slideshow-core toggles it); icon flips bookmark <-> bookmark-check.
+    + '<div class="flex items-center justify-center gap-2">'
+      + '<a id="title" class="text-base font-medium text-white hover:text-gold no-underline pointer-events-auto" href="#" target="_self"></a>'
+      + `<button id="bookmark" class="hidden flex-none inline-flex items-center justify-center h-8 w-8 rounded-lg text-white/90 hover:text-white active:text-gold hover:bg-white/10 transition-colors cursor-pointer select-none pointer-events-auto" title="Save (bookmark)">${ICON.bookmark}${ICON.bookmarkCheck}</button>`
+    + '</div>'
     + '<span id="sub" class="block mt-1 text-xs text-white/60"></span></div>'
   + topbarHtml
   + controlsHtml
@@ -424,7 +470,7 @@ writeFileSync(join(ROOT, 'docs/index.html'), viewerHtml);
 const header = `// ==UserScript==
 // @name         Reddirama
 // @namespace    https://github.com/Zaaphod42/reddirama
-// @version      1.1.1
+// @version      1.2.0
 // @description  Fullscreen, hands-free slideshow for Reddit: any subreddit or profile, your Home feed, and (logged in) your saved, upvoted and custom feeds. Pick the source in the viewer; adjustable speed, sound, video scrubbing.
 // @author       Zaaphod42
 // @match        https://www.reddit.com/*
@@ -444,6 +490,7 @@ const launcher = `  function fetchJson(url) {
   function getUsername() {
     return fetchJson('https://www.reddit.com/api/me.json').then(function (me) {
       var name = (me && me.data && me.data.name) || me.name;
+      if (me && me.data && me.data.modhash) cachedModhash = me.data.modhash;
       if (!name) throw new Error('not_logged_in');
       return name;
     });
@@ -451,13 +498,20 @@ const launcher = `  function fetchJson(url) {
   // Login check IN THE BACKGROUND, run once when the script loads. Lets us decide
   // SYNCHRONOUSLY (on click) whether to open the viewer: if we know the user is
   // logged out, we open no window (otherwise a stuck black tab). cachedName = name or null.
+  // We also grab the modhash here: it's the CSRF token Reddit requires for vote/save (sent as
+  // the X-Modhash header / uh param on those POSTs, alongside the session cookie).
   var cachedName = null;
+  var cachedModhash = null;
   var meChecked = false;
   var meCheck = fetch('https://www.reddit.com/api/me.json', { credentials: 'include', headers: { Accept: 'application/json' } })
     .then(function (r) { return r.ok ? r.json() : null; })
-    .then(function (d) { return (d && d.data && d.data.name) || null; })
+    .then(function (d) {
+      cachedName = (d && d.data && d.data.name) || null;
+      cachedModhash = (d && d.data && d.data.modhash) || null;
+      return cachedName;
+    })
     .catch(function () { return null; });
-  meCheck.then(function (name) { cachedName = name; meChecked = true; });
+  meCheck.then(function () { meChecked = true; });
   // --- multi-source state ---
   // viewerWin  : reference to the opened viewer tab (target of the postMessages).
   // resolvedName : resolved username (reused by source reloads).
@@ -467,6 +521,7 @@ const launcher = `  function fetchJson(url) {
   //   source as soon as another is requested (anti-mixing when switching quickly).
   var viewerWin = null;
   var resolvedName = null;
+  var resolvedModhash = null; // CSRF modhash for vote/save (resolved on launch, from me.json)
   var currentGen = 0;
   // Small dark toast near the button (white text, ~5 s then auto-removed). Used for the
   // "not logged in" case: we warn ON the Reddit page instead of opening an empty tab.
@@ -577,15 +632,62 @@ const launcher = `  function fetchJson(url) {
       return [];
     }
   }
-  // Listens for the viewer's requests (different origin). On each {type:'rss-load', id, sort?}, we
-  // bump the generation and (re)load the requested source (sort read for feeds: hot/new/top).
-  // e.source === viewerWin guarantees the message really comes from OUR viewer tab.
+  // Sends a reply (vote/save outcome) back to the viewer tab.
+  function replyToViewer(payload) {
+    if (viewerWin) { try { viewerWin.postMessage(payload, VIEWER_ORIGIN); } catch (e) {} }
+  }
+  // Resolves the modhash (CSRF token) needed by vote/save. Uses the one grabbed at launch; if it's
+  // missing (e.g. the background check failed), fetches me.json once more. Tolerant: '' on failure.
+  function ensureModhash() {
+    if (resolvedModhash) return Promise.resolve(resolvedModhash);
+    return fetchJson('https://www.reddit.com/api/me.json')
+      .then(function (me) { resolvedModhash = (me && me.data && me.data.modhash) || ''; return resolvedModhash; })
+      .catch(function () { return ''; });
+  }
+  // POSTs a form to Reddit with the session cookie + modhash (X-Modhash header AND uh param, which
+  // is what the legacy vote/save endpoints expect). Returns the fetch promise.
+  function postForm(url, body, uh) {
+    return fetch(url, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Modhash': uh || '' },
+      body: body,
+    });
+  }
+  // Vote on a post (id = fullname t3_xxx; dir = 1 up / 0 none / -1 down). Replies rss-vote-result
+  // so the viewer can confirm or revert (prevDir) its optimistic UI.
+  function doVote(id, dir, prevDir) {
+    ensureModhash().then(function (uh) {
+      var body = 'id=' + encodeURIComponent(id) + '&dir=' + encodeURIComponent(dir) + '&uh=' + encodeURIComponent(uh) + '&api_type=json';
+      return postForm('https://www.reddit.com/api/vote', body, uh);
+    }).then(function (r) {
+      replyToViewer({ type: 'rss-vote-result', id: id, dir: dir, prevDir: prevDir, ok: !!(r && r.ok) });
+    }).catch(function () {
+      replyToViewer({ type: 'rss-vote-result', id: id, dir: dir, prevDir: prevDir, ok: false });
+    });
+  }
+  // Save / unsave a post (id = fullname). Replies rss-save-result (the viewer reverts on failure).
+  function doSave(id, saved) {
+    ensureModhash().then(function (uh) {
+      var url = saved ? 'https://www.reddit.com/api/save' : 'https://www.reddit.com/api/unsave';
+      var body = 'id=' + encodeURIComponent(id) + '&uh=' + encodeURIComponent(uh);
+      return postForm(url, body, uh);
+    }).then(function (r) {
+      replyToViewer({ type: 'rss-save-result', id: id, saved: saved, ok: !!(r && r.ok) });
+    }).catch(function () {
+      replyToViewer({ type: 'rss-save-result', id: id, saved: saved, ok: false });
+    });
+  }
+  // Listens for the viewer's requests (different origin). rss-load (re)loads a source; rss-vote /
+  // rss-save perform the authed Reddit action on this origin (the viewer can't). e.source ===
+  // viewerWin guarantees the message really comes from OUR viewer tab.
   window.addEventListener('message', function (e) {
     var d = e.data;
-    if (!d || d.type !== 'rss-load' || !d.id) return;
+    if (!d || !d.type) return;
     if (viewerWin && e.source !== viewerWin) return; // ignore other windows
-    currentGen++;
-    loadSource(d.id, d.sort, currentGen);
+    if (d.type === 'rss-load' && d.id) { currentGen++; loadSource(d.id, d.sort, currentGen); return; }
+    if (d.type === 'rss-vote' && d.id) { doVote(d.id, d.dir, d.prevDir); return; }
+    if (d.type === 'rss-save' && d.id) { doSave(d.id, d.saved); return; }
   });
   // primary (optional): source placed AT THE TOP of the dropdown and opened immediately (r/ and u/ buttons).
   //   {id,label,kind}; without it, we open Home by default (the Reddirama button's behavior).
@@ -600,7 +702,7 @@ const launcher = `  function fetchJson(url) {
     // Cache-bust (?v=timestamp): forces the browser to load the LATEST viewer version on every
     // launch. Without it, the cached HTML (GitHub Pages ~10 min, aggressive Safari) hides viewer
     // updates (e.g. a sound fix). The origin stays the same => the postMessages still work.
-    var US_BUILD = '1.1.1'; // userscript version, passed to the viewer (?us=) for the version badge (cache diag)
+    var US_BUILD = '1.2.0'; // userscript version, passed to the viewer (?us=) for the version badge (cache diag)
     var win = window.open(VIEWER_URL + '?v=' + Date.now() + '&us=' + US_BUILD, '_blank');
     if (!win) {
       if (btn && btn.id === 'rss-launch') { btn.textContent = '\\u2192 Allow pop-ups, then retry'; setTimeout(function () { btn.textContent = orig; }, 3000); }
@@ -618,6 +720,7 @@ const launcher = `  function fetchJson(url) {
       var name = cachedName;
       if (name === null && !meChecked) { try { name = await getUsername(); } catch (e) { name = null; } }
       resolvedName = name;
+      resolvedModhash = cachedModhash; // for vote/save (ensureModhash re-fetches if still null)
       // 3) Sources depending on the login state. LOGGED IN: Home + Upvoted + Saved + personal feeds (kind
       //    drives the viewer's order/sort button). LOGGED OUT: PUBLIC only (Popular).
       var POPULAR = { id: 'feed:/r/popular/', label: 'Popular', kind: 'feed' };
