@@ -19,7 +19,7 @@ const VIEWER_URL = 'https://zaaphod42.github.io/reddirama/';
 const VIEWER_ORIGIN = 'https://zaaphod42.github.io';
 // VIEWER build number, shown small and unobtrusive on the loading screen: lets Seb
 // VERIFY that he is seeing the latest version (and not a cached one). Bump this on every viewer build.
-const VIEWER_BUILD = '1.2.2';
+const VIEWER_BUILD = '1.2.3';
 
 const mediaSrc = strip(read('src/media.js'));            // normalizeSaved (userscript, reddit side)
 const orderSrc = strip(read('src/order.js'));            // nextMode / orderItems (viewer)
@@ -74,10 +74,10 @@ const viewerBoot = `
   // rss-items/rss-done batches of ANOTHER source (late replies) are ignored (anti-mixing).
   var currentSourceId = 'home';
   var currentKind = 'feed';
-  // Whether the Reddit session is logged in (set by rss-sources): gates voting/saving in the
-  // slideshow (bookmark button + swipe-to-vote). DEFAULT true: when the userscript omits the flag we
-  // assume logged in (the Reddit action just fails harmlessly otherwise) so the controls stay visible.
-  var loggedIn = true;
+  // Whether the Reddit session is logged in: gates voting/saving (bookmark + swipe-vote). The userscript
+  // doesn't send a flag, so the viewer INFERS it from the sources list (Home/Upvoted/Saved only exist
+  // when logged in) — see the rss-sources handler. Default false until the first rss-sources arrives.
+  var loggedIn = false;
   // Map id -> kind, filled by rss-sources (to recover the kind when the source changes).
   var kindById = { home: 'feed' };
 
@@ -187,7 +187,7 @@ const viewerBoot = `
     });
     currentSourceId = cache.currentSourceId || 'home';
     currentKind = cache.currentKind || kindById[currentSourceId] || 'saved';
-    loggedIn = (cache.loggedIn === undefined) ? true : !!cache.loggedIn;
+    loggedIn = !!cache.loggedIn;
     if (select && (cache.sources || []).length) {
       select.value = currentSourceId; select.classList.remove('hidden');
       var chev = document.getElementById('source-chevron'); if (chev) chev.classList.remove('hidden');
@@ -266,7 +266,7 @@ const viewerBoot = `
       });
       currentSourceId = d.current || 'saved';
       currentKind = kindById[currentSourceId] || 'saved';
-      loggedIn = (d.loggedIn === undefined) ? true : !!d.loggedIn; // older userscripts omit it => assume logged in
+      loggedIn = (typeof d.loggedIn === 'boolean') ? d.loggedIn : (Array.isArray(d.sources) && d.sources.some(function (s) { return s && (s.id === 'home' || s.id === 'upvoted' || s.id === 'saved'); })); // infer login from the private-only sources
       if (select) { select.value = currentSourceId; select.classList.remove('hidden'); } // visible once populated
       var chevron = document.getElementById('source-chevron'); if (chevron) chevron.classList.remove('hidden'); // chevron revealed with the dropdown
       var h = ensureHandle();

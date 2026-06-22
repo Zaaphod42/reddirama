@@ -20,8 +20,9 @@ const SAVED_LABEL = { chrono: 'Newest', inverse: 'Oldest', random: 'Shuffle' };
 const FEED_SORTS = ['hot', 'new', 'top'];               // default for custom feeds
 const ALL_FEED_SORTS = ['best', 'hot', 'new', 'top'];   // 'best' only exists for Home
 const FEED_LABEL = { best: 'Best', hot: 'Hot', new: 'New', top: 'Top' };
-// For 'saved', only 'chrono' (Newest) is streamable; Oldest/Shuffle require the full set.
-const SAVED_STREAMABLE = (mode) => mode === 'chrono';
+// For 'saved', Newest (chrono) and Shuffle (random) STREAM: they start on the 1st batch and append
+// as pages arrive. Only Oldest (inverse) needs the full set (Reddit serves newest-first).
+const SAVED_STREAMABLE = (mode) => mode === 'chrono' || mode === 'random';
 
 // Defensive localStorage: in a blob: tab (userscript) the origin is opaque and
 // localStorage may be unavailable — we degrade silently (default settings).
@@ -38,6 +39,10 @@ const LS = {
   set speed(v) { this._set('rss_speed', String(v)); },
   get muted() { return this._get('rss_muted') !== 'false'; },
   set muted(v) { this._set('rss_muted', String(v)); },
+  // "Unseen" memory: ids of posts already SHOWN (shared across sources, this device). Capped to the
+  // most recent ~5000 so it can't grow without bound.
+  seenLoad() { try { return new Set(JSON.parse(this._get('rss_seen') || '[]')); } catch { return new Set(); } },
+  seenSave(set) { try { const a = Array.from(set); this._set('rss_seen', JSON.stringify(a.length > 5000 ? a.slice(a.length - 5000) : a)); } catch { /* opaque origin: ignore */ } },
 };
 
 /**
@@ -77,6 +82,7 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
     galleryIndex: 0,
     started: false,             // has the slideshow started rendering slides?
     complete: false,            // have all pages of the current source been received?
+    unseen: false,              // "Unseen" mode: play only never-shown posts (filter + shuffle, streamable)
     loggedIn: !!loggedIn,       // gates voting/saving (bookmark visible, swipe-vote active)
     timer: null,
     raf: null,
@@ -89,6 +95,11 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
   let chromePinned = false; // keep the chrome visible (no auto-hide) while a sort is loading
   let dragStartX = null, dragStartY = null, scrub = null; // #stage gestures: dragStartX/Y = pointer at pointerdown; scrub = during a video scrub
   let scrubLast = null, scrubSent = null; // video scrub: desired target (finger) vs target already sent to the decoder (one-seek-at-a-time coalescing)
+  // "Unseen" mode: a post becomes SEEN once render() shows it. The set persists in localStorage and is
+  // shared across all sources, so "Unseen" skips anything already watched. Loaded once here.
+  const seenSet = LS.seenLoad();
+  const isSeen = (id) => seenSet.has(id);
+  function markSeen(id) { if (id && !seenSet.has(id)) { seenSet.add(id); LS.seenSave(seenSet); } }
 
   // Shuffles once (Fisher-Yates). Used at startup in random mode and when the
   // user (re)selects Shuffle. The result becomes the STABLE order.
@@ -104,8 +115,19 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
   // that prev/next retrace exactly the sequence that was seen.
   function rebuild(reset) {
     const currentId = state.list[state.index]?.id;
+    // "Unseen" (any source): keep only never-shown posts, shuffled. Like random, incremental calls
+    // append the freshly-arrived unseen posts at the end (we never reshuffle what is already playing).
+    if (state.unseen) {
+      const pool = state.raw.filter((x) => x && !isSeen(x.id));
+      if (reset || !state.list.length) {
+        state.list = shuffleOnce(pool);
+      } else {
+        const known = new Set(state.list.map((x) => x.id));
+        const fresh = pool.filter((x) => !known.has(x.id));
+        if (fresh.length) state.list = state.list.concat(shuffleOnce(fresh));
+      }
     // Feeds are already sorted by the server: the list follows the raw order, period.
-    if (state.kind === 'saved' && state.mode === 'random') {
+    } else if (state.kind === 'saved' && state.mode === 'random') {
       if (reset || !state.list.length) {
         state.list = shuffleOnce(state.raw);
       } else {
@@ -160,6 +182,7 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
   function render() {
     const item = current();
     if (!item) return;
+    markSeen(item.id);   // record it as SEEN (powers "Unseen"; shared across all sources)
     if (chromePinned) { chromePinned = false; armIdle(); } // a sort load delivered content: resume normal auto-hide
     // Destroy the previous video's hls.js instance (otherwise it keeps downloading in the background).
     const prevV = stage.querySelector('video');
@@ -378,6 +401,7 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
 
   // Current label of the order/sort button depending on the source kind.
   function orderLabel() {
+    if (state.unseen) return 'Unseen';
     return state.kind === 'feed' ? FEED_LABEL[state.sort] : SAVED_LABEL[state.mode];
   }
 
@@ -435,7 +459,7 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
     it.dir = newDir;
     flashVote(direction, newDir);
     syncActions();                // reflect the new vote on the up/down buttons (fill)
-    showChrome();                 // keep the UI visible after the action
+    if (chromeVisible()) armIdle(); // a SWIPE vote must NOT reveal the UI (only the flash shows); a button vote keeps it visible
     if (onVote) onVote(it.id, newDir, prevDir);
   }
 
@@ -459,32 +483,53 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
   //             Oldest/Shuffle require the FULL set: if not yet `complete`, we switch to
   //             "busy" (loading screen); otherwise we (re)order and restart from 0.
   function cycleOrder() {
-    // The order/sort button is SEQUENTIAL (cycles values) and a feed sort re-fetches (sometimes
-    // hundreds of images). Pin the chrome so the UI stays visible and the button is clickable again
-    // right away, instead of auto-hiding mid-load; render() releases the pin once new content shows.
+    // SEQUENTIAL button: Newest -> Oldest -> Shuffle -> Unseen (saved), or Hot/New/Top -> Unseen
+    // (feed). Pin the chrome so the UI stays visible + clickable during a (sometimes long) feed
+    // re-fetch; render() releases the pin once new content shows.
     chromePinned = true; showChrome();
+    // Leaving "Unseen" -> back to the source's FIRST normal sort/mode.
+    if (state.unseen) {
+      state.unseen = false;
+      if (state.kind === 'feed') { state.sort = state.feedSorts[0]; LS.sort = state.sort; syncButtons(); if (onSort) onSort(state.sort); return; }
+      state.mode = 'chrono'; LS.mode = state.mode;   // back to Newest (set BEFORE syncButtons so the label is right)
+      syncButtons();
+      if (onBusy) onBusy(false);
+      if (state.started) rebuild(true); else maybeStart();
+      return;
+    }
     if (state.kind === 'feed') {
       const arr = state.feedSorts;
       const i = arr.indexOf(state.sort);
-      state.sort = arr[(i + 1 + arr.length) % arr.length];
+      if (i >= arr.length - 1) {            // last server sort -> Unseen (client filter on loaded items, no re-fetch)
+        state.unseen = true; syncButtons();
+        if (onBusy) onBusy(false);
+        state.started = false; maybeStart();
+        return;
+      }
+      state.sort = arr[i + 1];
       LS.sort = state.sort;
       syncButtons();                     // immediate label (the re-fetch follows)
       if (onSort) onSort(state.sort);     // the viewer restarts the source with this sort
       return;
     }
     // saved
-    state.mode = nextMode(state.mode);
+    if (state.mode === 'random') {        // Shuffle is the last normal mode -> Unseen
+      state.unseen = true; syncButtons();
+      if (onBusy) onBusy(false);
+      state.started = false; maybeStart();
+      return;
+    }
+    state.mode = nextMode(state.mode);    // Newest -> Oldest, Oldest -> Shuffle
     LS.mode = state.mode;
     syncButtons();
     if (SAVED_STREAMABLE(state.mode)) {
-      // Newest: we restart from the NEWEST (index 0), by symmetry with Oldest/Shuffle which
-      // restart from the beginning. (Incremental streaming, on the other hand, keeps the position via rebuild(false).)
+      // Newest/Shuffle STREAM: restart from index 0 (incremental streaming keeps position via rebuild(false)).
       if (onBusy) onBusy(false);
       if (!state.started) { maybeStart(); return; }
       rebuild(true);
       return;
     }
-    // Oldest / Shuffle: we need the whole set.
+    // Oldest: we need the whole set.
     if (!state.complete) {
       // Not everything received yet: we wait (loading screen), maybeStart will restart on `complete`.
       state.started = false;
@@ -729,20 +774,24 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
   //     (loading screen with a counter) and don't start.
   // If ALREADY started and streamable: we APPEND while preserving the position (rebuild(false)).
   function maybeStart() {
+    const streamable = state.kind === 'feed' || SAVED_STREAMABLE(state.mode) || state.unseen;
     if (state.started) {
-      const streamable = state.kind === 'feed' || SAVED_STREAMABLE(state.mode);
       if (streamable) rebuild(false); // append while keeping the current slide by id
       return;
     }
-    const streamable = state.kind === 'feed' || SAVED_STREAMABLE(state.mode);
     if (streamable) {
-      if (!state.raw.length) return;       // nothing yet: we wait for the 1st batch
+      if (state.unseen) {
+        if (!state.raw.some((x) => x && !isSeen(x.id))) {        // no UNSEEN post yet
+          if (state.complete) { if (onEmpty) onEmpty(); return; } // everything already seen
+          if (onBusy) onBusy(true, state.raw.length); return;    // wait for more pages
+        }
+      } else if (!state.raw.length) return;  // nothing yet: we wait for the 1st batch
       if (onBusy) onBusy(false);
       state.started = true;
       rebuild(true);                       // 1st slide, from index 0
       return;
     }
-    // saved + Oldest/Shuffle: we need the FULL set.
+    // saved + Oldest: we need the FULL set.
     if (!state.complete) { if (onBusy) onBusy(true, state.raw.length); return; }
     if (!state.raw.length) return;
     if (onBusy) onBusy(false);
@@ -779,6 +828,7 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
       state.galleryIndex = 0;
       state.started = false;
       state.complete = false;
+      state.unseen = false;       // a new source starts in its normal order (re-select Unseen if wanted)
       configureOrder();
     },
     // Incremental addition (de-duplicated by id) then attempt to start/append.

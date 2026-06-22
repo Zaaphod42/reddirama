@@ -68,8 +68,8 @@ body.idle #overlay button { pointer-events: none !important; }
 /* Icon "flash" in the center when pausing / resuming by tap (ambient feedback, like a
    video player): large icon, low opacity, slight zoom, then fade. The .flash class is
    (re)applied by slideshow-core on each toggle; #tapflash stays invisible the rest of the time. */
-/* #voteflash shares the same centered, animated treatment (swipe up/down = vote feedback);
-   its colour is set inline by slideshow-core (gold up / periwinkle down / dim when removed). */
+/* #voteflash shares the same centered, animated treatment (swipe up/down = vote feedback). It is
+   always WHITE; slideshow-core toggles .filled so the arrow is solid when the vote is set, outline when removed. */
 #tapflash, #voteflash { position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center; pointer-events: none; opacity: 0; }
 #tapflash, #voteflash { color: #fff; }
 #tapflash svg, #voteflash svg { width: 132px; height: 132px; }
@@ -77,7 +77,7 @@ body.idle #overlay button { pointer-events: none !important; }
 #voteflash.filled svg, #upvote.voted svg, #downvote.voted svg { fill: currentColor; }
 #tapflash.flash, #voteflash.flash { animation: rss-tapflash .6s ease-out; }
 @keyframes rss-tapflash {
-  0%   { opacity: .4; transform: scale(1); }
+  0%   { opacity: .6; transform: scale(1); }
   100% { opacity: 0;  transform: scale(1.25); }
 }
 @media (prefers-reduced-motion: reduce) { #tapflash.flash, #voteflash.flash { animation-duration: .12s; } }
