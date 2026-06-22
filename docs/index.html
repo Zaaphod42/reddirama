@@ -71,15 +71,17 @@ body.idle #overlay button { pointer-events: none !important; }
 /* #voteflash shares the same centered, animated treatment (swipe up/down = vote feedback);
    its colour is set inline by slideshow-core (gold up / periwinkle down / dim when removed). */
 #tapflash, #voteflash { position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center; pointer-events: none; opacity: 0; }
-#tapflash { color: #fff; }
+#tapflash, #voteflash { color: #fff; }
 #tapflash svg, #voteflash svg { width: 132px; height: 132px; }
+/* Vote feedback: the arrow FILLS in white when the vote is SET, stays outline when it is removed. */
+#voteflash.filled svg, #upvote.voted svg, #downvote.voted svg { fill: currentColor; }
 #tapflash.flash, #voteflash.flash { animation: rss-tapflash .6s ease-out; }
 @keyframes rss-tapflash {
   0%   { opacity: .4; transform: scale(1); }
   100% { opacity: 0;  transform: scale(1.25); }
 }
 @media (prefers-reduced-motion: reduce) { #tapflash.flash, #voteflash.flash { animation-duration: .12s; } }
-</style></head><body class="h-full bg-black text-white overflow-hidden"><div id="stage" class="fixed inset-0 flex items-center justify-center bg-black"></div><div id="tapflash"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-i="play"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-i="pause"><circle cx="12" cy="12" r="10"/><line x1="10" x2="10" y1="15" y2="9"/><line x1="14" x2="14" y1="15" y2="9"/></svg></div><div id="voteflash"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-i="up"><path d="M9 18v-6H5l7-7 7 7h-4v6z"/></svg><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-i="down"><path d="M15 6v6h4l-7 7-7-7h4V6z"/></svg></div><div id="progressTrack" class="fixed inset-x-0 top-0 z-40 h-11" style="touch-action:none;pointer-events:none"><div id="progressTrackInner" class="relative h-[3px] bg-white/15"><div id="progressBar" class="progress-bar absolute inset-y-0 left-0 w-0 bg-gold"></div></div></div><div id="overlay" class="fixed inset-x-0 bottom-16 z-20 px-4 text-center pointer-events-none transition-opacity duration-300" style="text-shadow:0 1px 4px #000"><div class="flex items-center justify-center gap-2"><a id="title" class="text-base font-medium text-white hover:text-gold no-underline pointer-events-auto" href="#" target="_self"></a><button id="bookmark" class="hidden flex-none inline-flex items-center justify-center h-8 w-8 rounded-lg text-white/90 hover:text-white active:text-gold hover:bg-white/10 transition-colors cursor-pointer select-none pointer-events-auto" title="Save (bookmark)"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-i="off" class="w-5 h-5"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-i="on" class="w-5 h-5"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/><path d="m9 10 2 2 4-4"/></svg></button></div><span id="sub" class="block mt-1 text-xs text-white/60"></span></div><div id="topbar" class="fixed inset-x-0 top-0 z-[60] flex items-center justify-between p-3 pointer-events-none transition-opacity duration-300"><div class="relative flex items-center pointer-events-auto"><select id="source-select" class="hidden appearance-none max-w-[45vw] h-9 pl-3 pr-8 rounded-lg bg-white/10 text-sm text-white border border-transparent hover:bg-white/20 focus:outline-none focus:border-white/50 focus:ring-1 focus:ring-white/50 cursor-pointer" title="Source"></select><svg id="source-chevron" class="hidden pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></div><div class="flex items-center pointer-events-auto"><button id="close" class="inline-flex items-center justify-center w-9 h-9 rounded-lg text-white/90 hover:text-white active:text-gold hover:bg-white/10 transition-colors cursor-pointer select-none" title="Close (back to Reddit)"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="w-5 h-5"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></div></div><div id="controls" class="fixed inset-x-0 bottom-0 z-30 flex items-center p-3 bg-gradient-to-t from-black/70 to-transparent transition-opacity duration-300"><div class="flex-1 flex items-center justify-start"><button id="sound" class="flex items-center justify-center h-11 w-11 rounded-lg text-white/90 hover:text-white active:text-gold hover:bg-white/10 transition-colors cursor-pointer select-none" title="Sound (m)"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-i="on"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-i="off"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="22" x2="16" y1="9" y2="15"/><line x1="16" x2="22" y1="9" y2="15"/></svg></button></div><div class="flex-1 flex items-center justify-center"><button id="prev" class="flex items-center justify-center h-11 w-11 rounded-lg text-white/90 hover:text-white active:text-gold hover:bg-white/10 transition-colors cursor-pointer select-none" title="Previous"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m12 8-4 4 4 4"/><path d="M16 12H8"/></svg></button><button id="playpause" class="flex items-center justify-center h-11 w-11 rounded-lg text-white/90 hover:text-white active:text-gold hover:bg-white/10 transition-colors cursor-pointer select-none" title="Play / Pause (a)"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-i="play"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-i="pause"><circle cx="12" cy="12" r="10"/><line x1="10" x2="10" y1="15" y2="9"/><line x1="14" x2="14" y1="15" y2="9"/></svg></button><button id="next" class="flex items-center justify-center h-11 w-11 rounded-lg text-white/90 hover:text-white active:text-gold hover:bg-white/10 transition-colors cursor-pointer select-none" title="Next"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m12 16 4-4-4-4"/><path d="M8 12h8"/></svg></button></div><div class="flex-1 flex items-center justify-end"><button id="speed" class="flex items-center justify-center h-11 px-[3px] rounded-lg text-sm text-white/90 hover:text-white active:text-gold hover:bg-white/10 transition-colors cursor-pointer select-none w-[36px] text-center tabular-nums" title="Speed (+/-)">5s</button><button id="order" class="flex items-center justify-center h-11 px-[3px] rounded-lg text-sm text-white/90 hover:text-white active:text-gold hover:bg-white/10 transition-colors cursor-pointer select-none w-[60px] text-center" title="Order (o)">Newest</button></div></div><div id="message" class="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 px-6 text-center bg-black"><div id="msg-loading" class="hidden flex flex-col items-center gap-3"><p id="msg-loading-text" class="text-base text-white/80 tabular-nums">Loading your Reddit&hellip;</p><p id="msg-loading-hint" class="hidden max-w-md text-sm text-white/50">Still loading. Make sure you clicked <span class="text-gold">Reddirama</span> on Reddit.</p><p id="ver-badge" class="text-[11px] text-white/25 tabular-nums">1.2.1</p></div><div id="msg-install" class="hidden flex flex-col items-center gap-4 max-w-md"><h1 class="text-2xl font-semibold tracking-tight">Reddirama</h1><p class="text-sm text-white/60">A fullscreen, hands-free slideshow for Reddit: play any subreddit or profile, your Home feed, or (logged in) your saved, upvoted and custom feeds. To use it, install the userscript, then launch it from Reddit:</p><ol class="text-left text-sm text-white/70 list-decimal list-inside space-y-2"><li>Install the <a class="underline" href="https://apps.apple.com/app/userscripts/id1463298887" target="_blank" rel="noopener">Userscripts</a> app (iOS/Safari) or <a class="underline" href="https://www.tampermonkey.net/" target="_blank" rel="noopener">Tampermonkey</a> (Chrome).</li><li>Add the script from the repo: <a class="text-gold hover:underline" href="https://github.com/Zaaphod42/reddirama" target="_blank" rel="noopener">github.com/Zaaphod42/reddirama</a></li><li>Open <span class="text-white">reddit.com</span> and click <span class="text-gold">Reddirama</span>.</li></ol></div><div id="msg-error" class="hidden flex flex-col items-center gap-3 max-w-md"><p class="text-base text-white/80">Couldn&rsquo;t load from Reddit.</p><p class="text-sm text-white/50">Check your connection and click <span class="text-gold">Reddirama</span> again.</p></div><div id="msg-empty" class="hidden flex flex-col items-center gap-3 max-w-md"><p class="text-base text-white/80">No media found in this source.</p><p class="text-sm text-white/50">Pick another source from the menu, top left.</p></div></div><script>
+</style></head><body class="h-full bg-black text-white overflow-hidden"><div id="stage" class="fixed inset-0 flex items-center justify-center bg-black"></div><div id="tapflash"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-i="play"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-i="pause"><circle cx="12" cy="12" r="10"/><line x1="10" x2="10" y1="15" y2="9"/><line x1="14" x2="14" y1="15" y2="9"/></svg></div><div id="voteflash"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-i="up"><path d="M9 18v-6H5l7-7 7 7h-4v6z"/></svg><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-i="down"><path d="M15 6v6h4l-7 7-7-7h4V6z"/></svg></div><div id="progressTrack" class="fixed inset-x-0 top-0 z-40 h-11" style="touch-action:none;pointer-events:none"><div id="progressTrackInner" class="relative h-[3px] bg-white/15"><div id="progressBar" class="progress-bar absolute inset-y-0 left-0 w-0 bg-gold"></div></div></div><div id="overlay" class="fixed inset-x-0 bottom-16 z-20 px-4 text-center pointer-events-none transition-opacity duration-300" style="text-shadow:0 1px 4px #000"><div id="actions" class="hidden flex items-center justify-center gap-2 mb-2"><button id="upvote" class="flex-none inline-flex items-center justify-center h-9 w-9 rounded-lg text-white/90 hover:text-white hover:bg-white/10 transition-colors cursor-pointer select-none pointer-events-auto" title="Upvote"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="w-5 h-5"><path d="M9 18v-6H5l7-7 7 7h-4v6z"/></svg></button><button id="downvote" class="flex-none inline-flex items-center justify-center h-9 w-9 rounded-lg text-white/90 hover:text-white hover:bg-white/10 transition-colors cursor-pointer select-none pointer-events-auto" title="Downvote"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="w-5 h-5"><path d="M15 6v6h4l-7 7-7-7h4V6z"/></svg></button><button id="bookmark" class="flex-none inline-flex items-center justify-center h-9 w-9 rounded-lg text-white/90 hover:text-white hover:bg-white/10 transition-colors cursor-pointer select-none pointer-events-auto" title="Save (bookmark)"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-i="off" class="w-5 h-5"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-i="on" class="w-5 h-5"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/><path d="m9 10 2 2 4-4"/></svg></button></div><a id="title" class="inline-block text-base font-medium text-white hover:text-gold no-underline pointer-events-auto" href="#" target="_self"></a><span id="sub" class="block mt-1 text-xs text-white/60"></span></div><div id="topbar" class="fixed inset-x-0 top-0 z-[60] flex items-center justify-between p-3 pointer-events-none transition-opacity duration-300"><div class="relative flex items-center pointer-events-auto"><select id="source-select" class="hidden appearance-none max-w-[45vw] h-9 pl-3 pr-8 rounded-lg bg-white/10 text-sm text-white border border-transparent hover:bg-white/20 focus:outline-none focus:border-white/50 focus:ring-1 focus:ring-white/50 cursor-pointer" title="Source"></select><svg id="source-chevron" class="hidden pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></div><div class="flex items-center pointer-events-auto"><button id="close" class="inline-flex items-center justify-center w-9 h-9 rounded-lg text-white/90 hover:text-white active:text-gold hover:bg-white/10 transition-colors cursor-pointer select-none" title="Close (back to Reddit)"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="w-5 h-5"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></div></div><div id="controls" class="fixed inset-x-0 bottom-0 z-30 flex items-center p-3 bg-gradient-to-t from-black/70 to-transparent transition-opacity duration-300"><div class="flex-1 flex items-center justify-start"><button id="sound" class="flex items-center justify-center h-11 w-11 rounded-lg text-white/90 hover:text-white active:text-gold hover:bg-white/10 transition-colors cursor-pointer select-none" title="Sound (m)"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-i="on"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-i="off"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="22" x2="16" y1="9" y2="15"/><line x1="16" x2="22" y1="9" y2="15"/></svg></button></div><div class="flex-1 flex items-center justify-center"><button id="prev" class="flex items-center justify-center h-11 w-11 rounded-lg text-white/90 hover:text-white active:text-gold hover:bg-white/10 transition-colors cursor-pointer select-none" title="Previous"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m12 8-4 4 4 4"/><path d="M16 12H8"/></svg></button><button id="playpause" class="flex items-center justify-center h-11 w-11 rounded-lg text-white/90 hover:text-white active:text-gold hover:bg-white/10 transition-colors cursor-pointer select-none" title="Play / Pause (a)"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-i="play"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-i="pause"><circle cx="12" cy="12" r="10"/><line x1="10" x2="10" y1="15" y2="9"/><line x1="14" x2="14" y1="15" y2="9"/></svg></button><button id="next" class="flex items-center justify-center h-11 w-11 rounded-lg text-white/90 hover:text-white active:text-gold hover:bg-white/10 transition-colors cursor-pointer select-none" title="Next"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m12 16 4-4-4-4"/><path d="M8 12h8"/></svg></button></div><div class="flex-1 flex items-center justify-end"><button id="speed" class="flex items-center justify-center h-11 px-[3px] rounded-lg text-sm text-white/90 hover:text-white active:text-gold hover:bg-white/10 transition-colors cursor-pointer select-none w-[36px] text-center tabular-nums" title="Speed (+/-)">5s</button><button id="order" class="flex items-center justify-center h-11 px-[3px] rounded-lg text-sm text-white/90 hover:text-white active:text-gold hover:bg-white/10 transition-colors cursor-pointer select-none w-[60px] text-center" title="Order (o)">Newest</button></div></div><div id="message" class="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 px-6 text-center bg-black"><div id="msg-loading" class="hidden flex flex-col items-center gap-3"><p id="msg-loading-text" class="text-base text-white/80 tabular-nums">Loading your Reddit&hellip;</p><p id="msg-loading-hint" class="hidden max-w-md text-sm text-white/50">Still loading. Make sure you clicked <span class="text-gold">Reddirama</span> on Reddit.</p><p id="ver-badge" class="text-[11px] text-white/25 tabular-nums">1.2.2</p></div><div id="msg-install" class="hidden flex flex-col items-center gap-4 max-w-md"><h1 class="text-2xl font-semibold tracking-tight">Reddirama</h1><p class="text-sm text-white/60">A fullscreen, hands-free slideshow for Reddit: play any subreddit or profile, your Home feed, or (logged in) your saved, upvoted and custom feeds. To use it, install the userscript, then launch it from Reddit:</p><ol class="text-left text-sm text-white/70 list-decimal list-inside space-y-2"><li>Install the <a class="underline" href="https://apps.apple.com/app/userscripts/id1463298887" target="_blank" rel="noopener">Userscripts</a> app (iOS/Safari) or <a class="underline" href="https://www.tampermonkey.net/" target="_blank" rel="noopener">Tampermonkey</a> (Chrome).</li><li>Add the script from the repo: <a class="text-gold hover:underline" href="https://github.com/Zaaphod42/reddirama" target="_blank" rel="noopener">github.com/Zaaphod42/reddirama</a></li><li>Open <span class="text-white">reddit.com</span> and click <span class="text-gold">Reddirama</span>.</li></ol></div><div id="msg-error" class="hidden flex flex-col items-center gap-3 max-w-md"><p class="text-base text-white/80">Couldn&rsquo;t load from Reddit.</p><p class="text-sm text-white/50">Check your connection and click <span class="text-gold">Reddirama</span> again.</p></div><div id="msg-empty" class="hidden flex flex-col items-center gap-3 max-w-md"><p class="text-base text-white/80">No media found in this source.</p><p class="text-sm text-white/50">Pick another source from the menu, top left.</p></div></div><script>
 // public/order.js  (ESM — used by the browser AND by the Node tests)
 const CYCLE = ['chrono', 'inverse', 'random'];
 
@@ -282,7 +284,7 @@ function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds = 5, on
     subEl.innerHTML = '';
     if (item.subreddit) subEl.appendChild(redditLink(item.subreddit, 'https://www.reddit.com/' + item.subreddit, false));
     if (item.author) subEl.appendChild(redditLink('u/' + item.author, 'https://www.reddit.com/user/' + item.author, true));
-    syncBookmark();
+    syncActions();
     preloadNext();
     // On the VERY 1st slide shown: we display the chrome then let auto-hide take over
     // (subsequent slides don't re-reveal it, otherwise it would flicker on each advance).
@@ -499,15 +501,19 @@ function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds = 5, on
   // onVote/onSave to post the request to the userscript and calls back setVote/setSaved
   // (to confirm or REVERT on failure). state stays on the item itself (it.saved, it.dir).
   //
-  // Reflects the CURRENT item's saved state on the #bookmark button: bookmark-check (on)
-  // when saved, plain bookmark (off) otherwise. Hidden entirely when logged out.
-  function syncBookmark() {
-    const b = btn('bookmark');
-    if (!b) return;
-    if (!state.loggedIn) { b.classList.add('hidden'); return; }
-    b.classList.remove('hidden');
+  // Syncs the action row (above the title): visibility (hidden when logged out), the bookmark icon
+  // (bookmark-check when saved) and the up/down arrows, which FILL in white when that vote is set.
+  function syncActions() {
+    const row = document.getElementById('actions');
+    if (row) row.classList.toggle('hidden', !state.loggedIn);   // whole row hidden when logged out
+    if (!state.loggedIn) return;
     const it = current();
-    showIcon(b, it && it.saved ? 'on' : 'off');
+    const b = btn('bookmark');
+    if (b) showIcon(b, it && it.saved ? 'on' : 'off');          // bookmark-check when saved
+    const up = btn('upvote'), down = btn('downvote');
+    const dir = it ? (it.dir || 0) : 0;
+    if (up) up.classList.toggle('voted', dir === 1);            // arrow fills white when the vote is set
+    if (down) down.classList.toggle('voted', dir === -1);
   }
 
   // Toggles the saved state of the CURRENT item: optimistic UI (instant icon swap) then
@@ -517,7 +523,7 @@ function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds = 5, on
     if (!it || !state.loggedIn) return;
     const saved = !it.saved;
     it.saved = saved;
-    syncBookmark();
+    syncActions();
     showChrome();                 // keep the UI visible after the tap
     if (onSave) onSave(it.id, saved);
   }
@@ -532,17 +538,18 @@ function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds = 5, on
     const newDir = direction > 0 ? (prevDir === 1 ? 0 : 1) : (prevDir === -1 ? 0 : -1);
     it.dir = newDir;
     flashVote(direction, newDir);
+    syncActions();                // reflect the new vote on the up/down buttons (fill)
+    showChrome();                 // keep the UI visible after the action
     if (onVote) onVote(it.id, newDir, prevDir);
   }
 
-  // Center flash for a vote (like the play/pause tapflash): an up/down arrow, gold when the
-  // vote is set upward, periwinkle when set downward, dim white when the vote was removed.
+  // Center flash for a vote (like the play/pause tapflash): a WHITE up/down arrow. It is FILLED when
+  // the vote is set, OUTLINE when the vote was just removed (toggled off). Always white (no colour).
   const voteflashEl = document.getElementById('voteflash');
   function flashVote(direction, newDir) {
     if (!voteflashEl) return;
     showIcon(voteflashEl, direction > 0 ? 'up' : 'down');
-    const active = newDir === (direction > 0 ? 1 : -1);
-    voteflashEl.style.color = active ? (direction > 0 ? '#FF4500' : '#7193FF') : 'rgba(255,255,255,.55)';
+    voteflashEl.classList.toggle('filled', newDir !== 0);   // filled = vote set, outline = vote removed
     voteflashEl.classList.remove('flash');
     void voteflashEl.offsetWidth;  // reflow: restart the animation even if re-triggered quickly
     voteflashEl.classList.add('flash');
@@ -621,6 +628,10 @@ function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds = 5, on
   btn('sound').onclick = toggleSound;
   const bookmarkBtn = btn('bookmark');
   if (bookmarkBtn) bookmarkBtn.onclick = toggleSave;
+  const upBtn = btn('upvote');
+  if (upBtn) upBtn.onclick = () => doVote(1);     // upvote button (same toggle as a swipe up)
+  const downBtn = btn('downvote');
+  if (downBtn) downBtn.onclick = () => doVote(-1); // downvote button (same toggle as a swipe down)
   const refreshBtn = btn('refresh');
   if (refreshBtn) {
     if (onRefresh) refreshBtn.onclick = onRefresh;
@@ -755,7 +766,8 @@ function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds = 5, on
     const dur = videoDuration(v);
     if (!v || dur <= 0) return;
     if (!scrub) {
-      if (Math.abs(e.clientX - dragStartX) <= DRAG_MIN) return;  // not a drag yet
+      const adx = Math.abs(e.clientX - dragStartX), ady = Math.abs(e.clientY - dragStartY);
+      if (adx <= DRAG_MIN || adx <= ady) return;  // scrub only on a HORIZONTAL-dominant drag (vertical => vote on release)
       scrub = true;
       if (progressInner) progressInner.classList.add('scrubbing');
       v.pause();
@@ -902,18 +914,19 @@ function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds = 5, on
     setVote(id, dir) {
       const it = state.raw.find((x) => x && x.id === id);
       if (it) it.dir = dir;
+      if (current() && current().id === id) syncActions();  // confirm/revert => refresh the button fill
     },
     // Authoritative saved state from the userscript (confirm, or REVERT on failure): update the
     // item and, if it's the one on screen, refresh the bookmark icon.
     setSaved(id, saved) {
       const it = state.raw.find((x) => x && x.id === id);
       if (it) it.saved = saved;
-      if (current() && current().id === id) syncBookmark();
+      if (current() && current().id === id) syncActions();
     },
     // Enables/disables voting+saving (logged-in session). Toggles the bookmark visibility.
     setLoggedIn(v) {
       state.loggedIn = !!v;
-      syncBookmark();
+      syncActions();
     },
     state,
   };
@@ -950,7 +963,7 @@ function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds = 5, on
   try {
     var _us = new URLSearchParams(location.search).get('us');
     var _vb = document.getElementById('ver-badge');
-    var _v = '1.2.1';
+    var _v = '1.2.2';
     if (_vb) _vb.textContent = (_us && _us !== _v) ? (_v + ' / us ' + _us) : _v;
   } catch (e) {}
 

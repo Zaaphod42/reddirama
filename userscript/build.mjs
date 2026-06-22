@@ -19,7 +19,7 @@ const VIEWER_URL = 'https://zaaphod42.github.io/reddirama/';
 const VIEWER_ORIGIN = 'https://zaaphod42.github.io';
 // VIEWER build number, shown small and unobtrusive on the loading screen: lets Seb
 // VERIFY that he is seeing the latest version (and not a cached one). Bump this on every viewer build.
-const VIEWER_BUILD = '1.2.1';
+const VIEWER_BUILD = '1.2.2';
 
 const mediaSrc = strip(read('src/media.js'));            // normalizeSaved (userscript, reddit side)
 const orderSrc = strip(read('src/order.js'));            // nextMode / orderItems (viewer)
@@ -333,6 +333,9 @@ const ICON = {
 
 // ICON button: touch target >= 44px (h-11 w-11), no text, pointer cursor, gold accent on hover/press.
 const ICON_BTN = 'flex items-center justify-center h-11 w-11 rounded-lg text-white/90 hover:text-white active:text-gold hover:bg-white/10 transition-colors cursor-pointer select-none';
+// Smaller action buttons (upvote / downvote / save) shown in a row ABOVE the post title. White,
+// pointer-events-auto so they stay clickable inside the pointer-events:none overlay.
+const ACT_BTN = 'flex-none inline-flex items-center justify-center h-9 w-9 rounded-lg text-white/90 hover:text-white hover:bg-white/10 transition-colors cursor-pointer select-none pointer-events-auto';
 // TEXT button (#order, #speed): FIXED width + centered text so a label change
 // shifts nothing (Newest/Oldest/Shuffle, 3s..15s).
 const TEXT_BTN = 'flex items-center justify-center h-11 px-[3px] rounded-lg text-sm text-white/90 hover:text-white active:text-gold hover:bg-white/10 transition-colors cursor-pointer select-none';
@@ -419,12 +422,15 @@ const viewerHtml =
   + '</div>'
   // Title / subreddit overlay (subtle white, gold link).
   + '<div id="overlay" class="fixed inset-x-0 bottom-16 z-20 px-4 text-center pointer-events-none transition-opacity duration-300" style="text-shadow:0 1px 4px #000">'
-    // Title + a Lucide bookmark button to its right (save / unsave). The button is hidden until we
-    // know the user is logged in (slideshow-core toggles it); icon flips bookmark <-> bookmark-check.
-    + '<div class="flex items-center justify-center gap-2">'
-      + '<a id="title" class="text-base font-medium text-white hover:text-gold no-underline pointer-events-auto" href="#" target="_self"></a>'
-      + `<button id="bookmark" class="hidden flex-none inline-flex items-center justify-center h-8 w-8 rounded-lg text-white/90 hover:text-white active:text-gold hover:bg-white/10 transition-colors cursor-pointer select-none pointer-events-auto" title="Save (bookmark)">${ICON.bookmark}${ICON.bookmarkCheck}</button>`
+    // Action row ABOVE the title: upvote / downvote / save. The whole row is hidden until we know the
+    // user is logged in (slideshow-core toggles #actions). Vote arrows FILL in white when the vote is
+    // set (.voted); the bookmark flips to bookmark-check when saved.
+    + `<div id="actions" class="hidden flex items-center justify-center gap-2 mb-2">`
+      + `<button id="upvote" class="${ACT_BTN}" title="Upvote">${svg('<path d="M9 18v-6H5l7-7 7 7h-4v6z"/>', 'class="w-5 h-5"')}</button>`
+      + `<button id="downvote" class="${ACT_BTN}" title="Downvote">${svg('<path d="M15 6v6h4l-7 7-7-7h4V6z"/>', 'class="w-5 h-5"')}</button>`
+      + `<button id="bookmark" class="${ACT_BTN}" title="Save (bookmark)">${ICON.bookmark}${ICON.bookmarkCheck}</button>`
     + '</div>'
+    + '<a id="title" class="inline-block text-base font-medium text-white hover:text-gold no-underline pointer-events-auto" href="#" target="_self"></a>'
     + '<span id="sub" class="block mt-1 text-xs text-white/60"></span></div>'
   + topbarHtml
   + controlsHtml

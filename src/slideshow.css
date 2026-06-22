@@ -71,8 +71,10 @@ body.idle #overlay button { pointer-events: none !important; }
 /* #voteflash shares the same centered, animated treatment (swipe up/down = vote feedback);
    its colour is set inline by slideshow-core (gold up / periwinkle down / dim when removed). */
 #tapflash, #voteflash { position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center; pointer-events: none; opacity: 0; }
-#tapflash { color: #fff; }
+#tapflash, #voteflash { color: #fff; }
 #tapflash svg, #voteflash svg { width: 132px; height: 132px; }
+/* Vote feedback: the arrow FILLS in white when the vote is SET, stays outline when it is removed. */
+#voteflash.filled svg, #upvote.voted svg, #downvote.voted svg { fill: currentColor; }
 #tapflash.flash, #voteflash.flash { animation: rss-tapflash .6s ease-out; }
 @keyframes rss-tapflash {
   0%   { opacity: .4; transform: scale(1); }

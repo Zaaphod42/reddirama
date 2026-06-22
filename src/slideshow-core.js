@@ -180,7 +180,7 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
     subEl.innerHTML = '';
     if (item.subreddit) subEl.appendChild(redditLink(item.subreddit, 'https://www.reddit.com/' + item.subreddit, false));
     if (item.author) subEl.appendChild(redditLink('u/' + item.author, 'https://www.reddit.com/user/' + item.author, true));
-    syncBookmark();
+    syncActions();
     preloadNext();
     // On the VERY 1st slide shown: we display the chrome then let auto-hide take over
     // (subsequent slides don't re-reveal it, otherwise it would flicker on each advance).
@@ -397,15 +397,19 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
   // onVote/onSave to post the request to the userscript and calls back setVote/setSaved
   // (to confirm or REVERT on failure). state stays on the item itself (it.saved, it.dir).
   //
-  // Reflects the CURRENT item's saved state on the #bookmark button: bookmark-check (on)
-  // when saved, plain bookmark (off) otherwise. Hidden entirely when logged out.
-  function syncBookmark() {
-    const b = btn('bookmark');
-    if (!b) return;
-    if (!state.loggedIn) { b.classList.add('hidden'); return; }
-    b.classList.remove('hidden');
+  // Syncs the action row (above the title): visibility (hidden when logged out), the bookmark icon
+  // (bookmark-check when saved) and the up/down arrows, which FILL in white when that vote is set.
+  function syncActions() {
+    const row = document.getElementById('actions');
+    if (row) row.classList.toggle('hidden', !state.loggedIn);   // whole row hidden when logged out
+    if (!state.loggedIn) return;
     const it = current();
-    showIcon(b, it && it.saved ? 'on' : 'off');
+    const b = btn('bookmark');
+    if (b) showIcon(b, it && it.saved ? 'on' : 'off');          // bookmark-check when saved
+    const up = btn('upvote'), down = btn('downvote');
+    const dir = it ? (it.dir || 0) : 0;
+    if (up) up.classList.toggle('voted', dir === 1);            // arrow fills white when the vote is set
+    if (down) down.classList.toggle('voted', dir === -1);
   }
 
   // Toggles the saved state of the CURRENT item: optimistic UI (instant icon swap) then
@@ -415,7 +419,7 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
     if (!it || !state.loggedIn) return;
     const saved = !it.saved;
     it.saved = saved;
-    syncBookmark();
+    syncActions();
     showChrome();                 // keep the UI visible after the tap
     if (onSave) onSave(it.id, saved);
   }
@@ -430,17 +434,18 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
     const newDir = direction > 0 ? (prevDir === 1 ? 0 : 1) : (prevDir === -1 ? 0 : -1);
     it.dir = newDir;
     flashVote(direction, newDir);
+    syncActions();                // reflect the new vote on the up/down buttons (fill)
+    showChrome();                 // keep the UI visible after the action
     if (onVote) onVote(it.id, newDir, prevDir);
   }
 
-  // Center flash for a vote (like the play/pause tapflash): an up/down arrow, gold when the
-  // vote is set upward, periwinkle when set downward, dim white when the vote was removed.
+  // Center flash for a vote (like the play/pause tapflash): a WHITE up/down arrow. It is FILLED when
+  // the vote is set, OUTLINE when the vote was just removed (toggled off). Always white (no colour).
   const voteflashEl = document.getElementById('voteflash');
   function flashVote(direction, newDir) {
     if (!voteflashEl) return;
     showIcon(voteflashEl, direction > 0 ? 'up' : 'down');
-    const active = newDir === (direction > 0 ? 1 : -1);
-    voteflashEl.style.color = active ? (direction > 0 ? '#FF4500' : '#7193FF') : 'rgba(255,255,255,.55)';
+    voteflashEl.classList.toggle('filled', newDir !== 0);   // filled = vote set, outline = vote removed
     voteflashEl.classList.remove('flash');
     void voteflashEl.offsetWidth;  // reflow: restart the animation even if re-triggered quickly
     voteflashEl.classList.add('flash');
@@ -519,6 +524,10 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
   btn('sound').onclick = toggleSound;
   const bookmarkBtn = btn('bookmark');
   if (bookmarkBtn) bookmarkBtn.onclick = toggleSave;
+  const upBtn = btn('upvote');
+  if (upBtn) upBtn.onclick = () => doVote(1);     // upvote button (same toggle as a swipe up)
+  const downBtn = btn('downvote');
+  if (downBtn) downBtn.onclick = () => doVote(-1); // downvote button (same toggle as a swipe down)
   const refreshBtn = btn('refresh');
   if (refreshBtn) {
     if (onRefresh) refreshBtn.onclick = onRefresh;
@@ -653,7 +662,8 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
     const dur = videoDuration(v);
     if (!v || dur <= 0) return;
     if (!scrub) {
-      if (Math.abs(e.clientX - dragStartX) <= DRAG_MIN) return;  // not a drag yet
+      const adx = Math.abs(e.clientX - dragStartX), ady = Math.abs(e.clientY - dragStartY);
+      if (adx <= DRAG_MIN || adx <= ady) return;  // scrub only on a HORIZONTAL-dominant drag (vertical => vote on release)
       scrub = true;
       if (progressInner) progressInner.classList.add('scrubbing');
       v.pause();
@@ -800,18 +810,19 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
     setVote(id, dir) {
       const it = state.raw.find((x) => x && x.id === id);
       if (it) it.dir = dir;
+      if (current() && current().id === id) syncActions();  // confirm/revert => refresh the button fill
     },
     // Authoritative saved state from the userscript (confirm, or REVERT on failure): update the
     // item and, if it's the one on screen, refresh the bookmark icon.
     setSaved(id, saved) {
       const it = state.raw.find((x) => x && x.id === id);
       if (it) it.saved = saved;
-      if (current() && current().id === id) syncBookmark();
+      if (current() && current().id === id) syncActions();
     },
     // Enables/disables voting+saving (logged-in session). Toggles the bookmark visibility.
     setLoggedIn(v) {
       state.loggedIn = !!v;
-      syncBookmark();
+      syncActions();
     },
     state,
   };
