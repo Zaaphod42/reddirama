@@ -29,6 +29,12 @@ body.idle #controls,
 body.idle #overlay,
 body.idle #topbar { opacity: 0; pointer-events: none; }
 
+/* While a sort is loading (esp. Oldest waiting on the whole set), keep the controls and the source
+   menu visible + clickable ABOVE the loading overlay, so one can switch sort/source without waiting
+   (even on first load with no slide yet). Overrides body.idle thanks to !important. */
+body.busy-controls #controls,
+body.busy-controls #topbar { z-index: 60; opacity: 1 !important; pointer-events: auto !important; }
+
 /* When the UI is hidden, the links (title / r/ / u/) AND the bookmark button must NOT stay
    clickable: their pointer-events:auto (useful when the UI is visible) would survive the overlay's
    pointer-events:none and open a post/sub/profile (or save) by mistake. So we force them off too. */

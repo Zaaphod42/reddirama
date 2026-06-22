@@ -19,7 +19,7 @@ const VIEWER_URL = 'https://zaaphod42.github.io/reddirama/';
 const VIEWER_ORIGIN = 'https://zaaphod42.github.io';
 // VIEWER build number, shown small and unobtrusive on the loading screen: lets Seb
 // VERIFY that he is seeing the latest version (and not a cached one). Bump this on every viewer build.
-const VIEWER_BUILD = '1.2.4';
+const VIEWER_BUILD = '1.2.5';
 
 const mediaSrc = strip(read('src/media.js'));            // normalizeSaved (userscript, reddit side)
 const orderSrc = strip(read('src/order.js'));            // nextMode / orderItems (viewer)
@@ -122,8 +122,14 @@ const viewerBoot = `
     if (!isBusy) {
       if (msg) msg.classList.add('hidden');
       if (badge) badge.classList.add('hidden');
+      document.body.classList.remove('busy-controls');
       return;
     }
+    // While a sort is loading (Oldest waits on the whole set), keep the controls + source menu clickable
+    // ON TOP of the screen so one can switch sort/source without waiting — even on FIRST load with no slide
+    // yet (e.g. Oldest was the last-used sort). The initial "Loading your Reddit…" uses showLoading()
+    // directly (not onBusy), so it is NOT affected — its screen stays clean.
+    document.body.classList.add('busy-controls');
     // A slide is already on screen (e.g. switching to Oldest while watching): KEEP it and the controls
     // visible — the order button stays clickable so one can change sort without waiting on the whole set —
     // and show only a small non-blocking counter. Full-screen loader only when there's nothing to show yet.
