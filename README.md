@@ -6,8 +6,8 @@
 
 Turn Reddit into a fullscreen, hands-free slideshow. Play any **subreddit** or **profile**, your
 **Home** feed, or (logged in) your **saved** and **upvoted** posts and your **custom feeds**.
-Sorting adapts to the source (saved, upvoted and profiles: newest/oldest/shuffle; Home: best/hot/new/top; subreddits and feeds: hot/new/top).
-Adjustable speed, sound, and video scrubbing. No login needed to play any subreddit or profile; log in to also get your Home, saved, upvoted and custom feeds.
+Sorting adapts to the source (saved, upvoted and profiles: newest/oldest/shuffle; Home: best/hot/new/top; subreddits and feeds: hot/new/top), plus an **Unseen** mode on any source that plays only posts you haven't watched yet.
+Adjustable speed, sound, and video scrubbing. **Upvote, downvote and save posts right from the slideshow** (logged in). No login needed to play any subreddit or profile; log in to also get your Home, saved, upvoted and custom feeds.
 
 **Live viewer:** <https://zaaphod42.github.io/reddirama/>
 
@@ -61,12 +61,16 @@ Opening Reddirama from a **subreddit** or **profile** page puts that source at t
 
 <img src="preview-mobile-01.png" alt="Reddirama slideshow on a phone" width="196"> <img src="preview-mobile-02.png" alt="Reddirama slideshow on a phone" width="196">
 
-**Gestures:**
-- **Tap** the left / right third: previous / next. **Tap** the center: show or hide the controls (they also auto-hide after a few seconds).
+**Gestures (touch):**
+- **Tap** the left / right edge: previous / next. **Tap** the center: show the controls (they auto-hide after a few seconds); **double-tap** the center: pause (tap once to resume).
+- **Swipe up / down**: upvote / downvote the current post (logged in). A big arrow flashes, filled when the vote is set and outline when you clear it; swipe the same way again to remove the vote, like Reddit's arrows.
 - **Gallery post** (several images): **tap** moves through the images; **swipe** left or right jumps to the next / previous post (skips the rest of the album).
 - **Video**: **drag** horizontally anywhere to scrub (seek); **tap** to navigate.
-- **Pinch** to zoom (native), on images and videos.
-- **Keyboard**: `space` = play/pause, `←` / `→` = previous / next, `o` = order, `+` / `-` = speed, `m` = sound, `c` = show/hide controls.
+- **Pinch** to zoom (native), on images.
+
+**On-screen buttons:** above the title (logged in) — **upvote**, **downvote** and **save** (bookmark). Bottom bar — sound, previous, play/pause, next, speed and **sort** (the sort button also offers **Unseen**, posts you haven't watched yet). Top-left opens the **source menu**; top-right **closes** the slideshow.
+
+**Keyboard:** `space` (or `a`) = play/pause, `←` / `→` = previous / next, `o` = sort, `+` / `-` = speed, `m` = sound, `c` = show/hide controls.
 
 ## Notes
 
