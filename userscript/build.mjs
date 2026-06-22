@@ -19,7 +19,7 @@ const VIEWER_URL = 'https://zaaphod42.github.io/reddirama/';
 const VIEWER_ORIGIN = 'https://zaaphod42.github.io';
 // VIEWER build number, shown small and unobtrusive on the loading screen: lets Seb
 // VERIFY that he is seeing the latest version (and not a cached one). Bump this on every viewer build.
-const VIEWER_BUILD = '1.2.3';
+const VIEWER_BUILD = '1.2.4';
 
 const mediaSrc = strip(read('src/media.js'));            // normalizeSaved (userscript, reddit side)
 const orderSrc = strip(read('src/order.js'));            // nextMode / orderItems (viewer)
@@ -118,8 +118,23 @@ const viewerBoot = `
   // onBusy(isBusy, count) — passed to slideshow-core. saved Oldest/Shuffle waits for the whole set:
   // while waiting we (re)show the loading screen with a live counter; otherwise we hide it.
   function onBusy(isBusy, count) {
-    if (isBusy) { showLoading(count); }
-    else if (msg) { msg.classList.add('hidden'); }
+    var badge = document.getElementById('busy-badge');
+    if (!isBusy) {
+      if (msg) msg.classList.add('hidden');
+      if (badge) badge.classList.add('hidden');
+      return;
+    }
+    // A slide is already on screen (e.g. switching to Oldest while watching): KEEP it and the controls
+    // visible — the order button stays clickable so one can change sort without waiting on the whole set —
+    // and show only a small non-blocking counter. Full-screen loader only when there's nothing to show yet.
+    var hasSlide = !!document.querySelector('#stage img, #stage video');
+    if (hasSlide) {
+      if (msg) msg.classList.add('hidden');
+      if (badge) { badge.textContent = (typeof count === 'number' && count > 0) ? ('Loading\\u2026 ' + count) : 'Loading\\u2026'; badge.classList.remove('hidden'); }
+    } else {
+      if (badge) badge.classList.add('hidden');
+      showLoading(count);
+    }
   }
 
   // onEmpty() — the current source is complete but contains NO media: we replace the
@@ -436,6 +451,9 @@ const viewerHtml =
   + controlsHtml
   // Initial screen. Two mutually exclusive contents, hidden at first: viewerBoot
   // reveals "Loading" (opened by the userscript) OR the tutorial (direct visit).
+  // Non-blocking "loading" counter (saved Oldest waiting on the full set): shown ONLY when a slide is
+  // already on screen, so the controls (incl. the order button) stay visible and clickable underneath.
+  + '<div id="busy-badge" class="hidden fixed left-1/2 -translate-x-1/2 top-16 z-[55] px-3 py-1 rounded-full bg-black/70 text-xs text-white/85 tabular-nums pointer-events-none">Loading&hellip;</div>'
   + '<div id="message" class="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 px-6 text-center bg-black">'
     // (a) Loading (opened from Reddit by the userscript). #msg-loading-text receives the
     //     live counter ("Loading… N saved") while waiting on saved Oldest/Shuffle.
