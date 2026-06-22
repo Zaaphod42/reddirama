@@ -19,7 +19,7 @@ const VIEWER_URL = 'https://zaaphod42.github.io/reddirama/';
 const VIEWER_ORIGIN = 'https://zaaphod42.github.io';
 // VIEWER build number, shown small and unobtrusive on the loading screen: lets Seb
 // VERIFY that he is seeing the latest version (and not a cached one). Bump this on every viewer build.
-const VIEWER_BUILD = '1.2.5';
+const VIEWER_BUILD = '1.2.6';
 
 const mediaSrc = strip(read('src/media.js'));            // normalizeSaved (userscript, reddit side)
 const orderSrc = strip(read('src/order.js'));            // nextMode / orderItems (viewer)
@@ -501,7 +501,7 @@ writeFileSync(join(ROOT, 'docs/index.html'), viewerHtml);
 const header = `// ==UserScript==
 // @name         Reddirama
 // @namespace    https://github.com/Zaaphod42/reddirama
-// @version      1.2.0
+// @version      1.2.6
 // @description  Fullscreen, hands-free slideshow for Reddit: any subreddit or profile, your Home feed, and (logged in) your saved, upvoted and custom feeds. Pick the source in the viewer; adjustable speed, sound, video scrubbing.
 // @author       Zaaphod42
 // @match        https://www.reddit.com/*
@@ -733,7 +733,7 @@ const launcher = `  function fetchJson(url) {
     // Cache-bust (?v=timestamp): forces the browser to load the LATEST viewer version on every
     // launch. Without it, the cached HTML (GitHub Pages ~10 min, aggressive Safari) hides viewer
     // updates (e.g. a sound fix). The origin stays the same => the postMessages still work.
-    var US_BUILD = '1.2.0'; // userscript version, passed to the viewer (?us=) for the version badge (cache diag)
+    var US_BUILD = '1.2.6'; // userscript version, passed to the viewer (?us=) for the version badge (cache diag)
     var win = window.open(VIEWER_URL + '?v=' + Date.now() + '&us=' + US_BUILD, '_blank');
     if (!win) {
       if (btn && btn.id === 'rss-launch') { btn.textContent = '\\u2192 Allow pop-ups, then retry'; setTimeout(function () { btn.textContent = orig; }, 3000); }

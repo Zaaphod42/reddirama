@@ -21,6 +21,7 @@ function base(p) {
     // swipe-to-vote toggle. dir is the numeric vote used by the /api/vote endpoint (1/0/-1).
     saved: !!p.saved,
     dir: p.likes === true ? 1 : (p.likes === false ? -1 : 0),
+    archived: !!p.archived,   // Reddit auto-archives after ~6 months: voting is closed (the viewer greys the up/down buttons)
   };
 }
 

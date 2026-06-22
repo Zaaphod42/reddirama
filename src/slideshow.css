@@ -81,6 +81,8 @@ body.idle #overlay button { pointer-events: none !important; }
 #tapflash svg, #voteflash svg { width: 132px; height: 132px; }
 /* Vote feedback: the arrow FILLS in white when the vote is SET, stays outline when it is removed. */
 #voteflash.filled svg, #upvote.voted svg, #downvote.voted svg { fill: currentColor; }
+/* Archived post: Reddit closes voting -> grey out + disable the up/down buttons (save still works). */
+#upvote:disabled, #downvote:disabled { opacity: .35; cursor: not-allowed; }
 #tapflash.flash, #voteflash.flash { animation: rss-tapflash .6s ease-out; }
 @keyframes rss-tapflash {
   0%   { opacity: .6; transform: scale(1); }

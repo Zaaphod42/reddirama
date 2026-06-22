@@ -432,8 +432,9 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
     if (b) showIcon(b, it && it.saved ? 'on' : 'off');          // bookmark-check when saved
     const up = btn('upvote'), down = btn('downvote');
     const dir = it ? (it.dir || 0) : 0;
-    if (up) up.classList.toggle('voted', dir === 1);            // arrow fills white when the vote is set
-    if (down) down.classList.toggle('voted', dir === -1);
+    const archived = !!(it && it.archived);                     // archived posts: Reddit closes voting
+    if (up) { up.classList.toggle('voted', dir === 1); up.disabled = archived; up.title = archived ? 'Archived — voting closed' : 'Upvote'; }   // greyed + disabled via CSS :disabled
+    if (down) { down.classList.toggle('voted', dir === -1); down.disabled = archived; down.title = archived ? 'Archived — voting closed' : 'Downvote'; }
   }
 
   // Toggles the saved state of the CURRENT item: optimistic UI (instant icon swap) then
@@ -453,7 +454,7 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
   // delegated to the viewer (onVote). dir for Reddit's /api/vote: 1 (up) / 0 (none) / -1 (down).
   function doVote(direction) {        // direction: +1 (swipe up) | -1 (swipe down)
     const it = current();
-    if (!it || !state.loggedIn) return;
+    if (!it || !state.loggedIn || it.archived) return;   // archived posts: voting is closed (swipe does nothing)
     const prevDir = it.dir || 0;
     const newDir = direction > 0 ? (prevDir === 1 ? 0 : 1) : (prevDir === -1 ? 0 : -1);
     it.dir = newDir;

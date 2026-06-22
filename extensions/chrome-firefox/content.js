@@ -28,6 +28,7 @@ function base(p) {
     // swipe-to-vote toggle. dir is the numeric vote used by the /api/vote endpoint (1/0/-1).
     saved: !!p.saved,
     dir: p.likes === true ? 1 : (p.likes === false ? -1 : 0),
+    archived: !!p.archived,   // Reddit auto-archives after ~6 months: voting is closed (the viewer greys the up/down buttons)
   };
 }
 
@@ -333,7 +334,7 @@ function normalizeSaved(children) {
     // Cache-bust (?v=timestamp): forces the browser to load the LATEST viewer version on every
     // launch. Without it, the cached HTML (GitHub Pages ~10 min, aggressive Safari) hides viewer
     // updates (e.g. a sound fix). The origin stays the same => the postMessages still work.
-    var US_BUILD = '1.2.0'; // userscript version, passed to the viewer (?us=) for the version badge (cache diag)
+    var US_BUILD = '1.2.6'; // userscript version, passed to the viewer (?us=) for the version badge (cache diag)
     var win = window.open(VIEWER_URL + '?v=' + Date.now() + '&us=' + US_BUILD, '_blank');
     if (!win) {
       if (btn && btn.id === 'rss-launch') { btn.textContent = '\u2192 Allow pop-ups, then retry'; setTimeout(function () { btn.textContent = orig; }, 3000); }
