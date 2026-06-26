@@ -81,9 +81,10 @@ const viewerBoot = `
   // Map id -> kind, filled by rss-sources (to recover the kind when the source changes).
   var kindById = { home: 'feed' };
 
-  // Gets a feed's default sort from localStorage (otherwise 'hot').
+  // Gets a feed's default sort from localStorage (otherwise the source's first sort).
   // Sorts offered depending on the source: Home = best/hot/new/top (like Reddit); customs = hot/new/top.
-  function feedSortsFor(id) { return id === 'home' ? ['hot', 'best', 'new', 'top'] : ['hot', 'new', 'top']; }
+  // The FIRST entry is the default when the user has no saved preference (rss_sort) — Home defaults to 'best'.
+  function feedSortsFor(id) { return id === 'home' ? ['best', 'hot', 'new', 'top'] : ['hot', 'new', 'top']; }
   function defaultFeedSort() {
     var valid = feedSortsFor(currentSourceId);
     try { var s = localStorage.getItem('rss_sort'); return valid.indexOf(s) !== -1 ? s : valid[0]; }
