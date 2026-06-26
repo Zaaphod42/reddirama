@@ -745,15 +745,15 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
     const x = e.clientX;                                         // TAP (small movement)
     if (x >= window.innerWidth / 3 && x <= window.innerWidth * 2 / 3) {
       // CENTER ZONE: DOUBLE tap = pause; SINGLE tap = resume (if paused) otherwise
-      // reveal the UI (which re-hides itself). No delay: the single tap acts immediately, a
-      // quick 2nd tap pauses on top. (Detection via e.timeStamp, monotonic.)
+      // TOGGLE the UI (reveals if hidden, hides if visible). No delay: the single tap acts
+      // immediately, a quick 2nd tap pauses on top. (Detection via e.timeStamp, monotonic.)
       if (e.timeStamp - lastCenterTap < DOUBLE_TAP_MS) {
         lastCenterTap = 0;                                       // double tap consumed
         if (state.playing) { setPlaying(false); flashState(false); }
       } else {
         lastCenterTap = e.timeStamp;
         if (!state.playing) { setPlaying(true); flashState(true); }
-        else showChrome();                                       // while playing: 1st tap reveals the UI
+        else toggleChrome();                                     // while playing: 1st tap toggles the UI (show/hide)
       }
     } else {
       // LEFT / RIGHT zones: previous / next. If we were PAUSED, we RESTART the slideshow
