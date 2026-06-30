@@ -19,7 +19,7 @@ const VIEWER_URL = 'https://zaaphod42.github.io/reddirama/';
 const VIEWER_ORIGIN = 'https://zaaphod42.github.io';
 // VIEWER build number, shown small and unobtrusive on the loading screen: lets Seb
 // VERIFY that he is seeing the latest version (and not a cached one). Bump this on every viewer build.
-const VIEWER_BUILD = '1.2.7';
+const VIEWER_BUILD = '1.2.9';
 
 const mediaSrc = strip(read('src/media.js'));            // normalizeSaved (userscript, reddit side)
 const orderSrc = strip(read('src/order.js'));            // nextMode / orderItems (viewer)
@@ -59,13 +59,15 @@ const viewerBoot = `
   var select = document.getElementById('source-select');
   var openedByScript = !!window.opener;
 
-  // Version badge. Normally shows a SINGLE version (viewer and userscript/extension match). If they
-  // DIFFER (e.g. a stale cached viewer), it shows both ("<viewer> / us <script>") as a cache diagnostic.
+  // Version badge. Shows the viewer ("App") and, when launched from the userscript/extension (the 'us'
+  // query param carries its version), the script too: "App <viewer> | Script <script>". On a direct
+  // visit there is no script version, so we show "App <viewer>" alone. Mismatched numbers are the
+  // cache diagnostic (e.g. a stale cached viewer vs a freshly updated script).
   try {
     var _us = new URLSearchParams(location.search).get('us');
     var _vb = document.getElementById('ver-badge');
     var _v = '${VIEWER_BUILD}';
-    if (_vb) _vb.textContent = (_us && _us !== _v) ? (_v + ' / us ' + _us) : _v;
+    if (_vb) _vb.textContent = _us ? ('App ' + _v + ' | Script ' + _us) : ('App ' + _v);
   } catch (e) {}
 
   // Userscript origin, captured on the first received message (so we can reply with rss-load).
@@ -466,7 +468,7 @@ const viewerHtml =
     + '<div id="msg-loading" class="hidden flex flex-col items-center gap-3">'
       + '<p id="msg-loading-text" class="text-base text-white/80 tabular-nums">Loading your Reddit&hellip;</p>'
       + '<p id="msg-loading-hint" class="hidden max-w-md text-sm text-white/50">Still loading. Make sure you clicked <span class="text-gold">Reddirama</span> on Reddit.</p>'
-      + `<p id="ver-badge" class="text-[11px] text-white/25 tabular-nums">${VIEWER_BUILD}</p>`
+      + `<p id="ver-badge" class="text-[11px] text-white/25 tabular-nums">App ${VIEWER_BUILD}</p>`
     + '</div>'
     // (b) Install tutorial (URL opened directly, without the userscript).
     + '<div id="msg-install" class="hidden flex flex-col items-center gap-4 max-w-md">'
