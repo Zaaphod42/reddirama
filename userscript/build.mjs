@@ -19,7 +19,7 @@ const VIEWER_URL = 'https://zaaphod42.github.io/reddirama/';
 const VIEWER_ORIGIN = 'https://zaaphod42.github.io';
 // VIEWER build number, shown small and unobtrusive on the loading screen: lets Seb
 // VERIFY that he is seeing the latest version (and not a cached one). Bump this on every viewer build.
-const VIEWER_BUILD = '1.2.11';
+const VIEWER_BUILD = '1.2.12';
 
 const mediaSrc = strip(read('src/media.js'));            // normalizeSaved (userscript, reddit side)
 const orderSrc = strip(read('src/order.js'));            // nextMode / orderItems (viewer)
@@ -360,9 +360,9 @@ const ICON = {
   arrowDown: svg('<path d="M15 6v6h4l-7 7-7-7h4V6z"/>', 'data-i="down"'),  // arrow-big-down (downvote)
   // Media filter button (#viewfilter), 3-state via data-i (slideshow-core cycles all -> photos -> videos):
   //   all (image-play)  = show everything · photos (image) = only photos/gifs/galleries · videos (film) = only videos
-  viewAll: svg('<path d="M15 15.003a1 1 0 0 1 1.517-.859l4.997 2.997a1 1 0 0 1 0 1.718l-4.997 2.997a1 1 0 0 1-1.517-.86z"/><path d="M21 12.17V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h6"/><path d="m6 21 5-5"/><circle cx="9" cy="9" r="2"/>', 'data-i="all"'),       // image-play
-  viewPhotos: svg('<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>', 'data-i="photos"'),                                                                                            // image
-  viewVideos: svg('<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 3v18"/><path d="M3 7.5h4"/><path d="M3 12h18"/><path d="M3 16.5h4"/><path d="M17 3v18"/><path d="M17 7.5h4"/><path d="M17 16.5h4"/>', 'data-i="videos"'),                                       // film
+  viewAll: svg('<path d="M15 15.003a1 1 0 0 1 1.517-.859l4.997 2.997a1 1 0 0 1 0 1.718l-4.997 2.997a1 1 0 0 1-1.517-.86z"/><path d="M21 12.17V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h6"/><path d="m6 21 5-5"/><circle cx="9" cy="9" r="2"/>', 'data-i="all" class="w-[23.8px] h-[23.8px]"'),       // image-play (15% smaller than the other controls)
+  viewPhotos: svg('<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>', 'data-i="photos" class="w-[23.8px] h-[23.8px]"'),                                                                                            // image
+  viewVideos: svg('<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 3v18"/><path d="M3 7.5h4"/><path d="M3 12h18"/><path d="M3 16.5h4"/><path d="M17 3v18"/><path d="M17 7.5h4"/><path d="M17 16.5h4"/>', 'data-i="videos" class="w-[23.8px] h-[23.8px]"'),                                       // film
 };
 
 // ICON button: touch target >= 44px (h-11 w-11), no text, pointer cursor, gold accent on hover/press.
