@@ -19,12 +19,18 @@ const VIEWER_URL = 'https://zaaphod42.github.io/reddirama/';
 const VIEWER_ORIGIN = 'https://zaaphod42.github.io';
 // VIEWER build number, shown small and unobtrusive on the loading screen: lets Seb
 // VERIFY that he is seeing the latest version (and not a cached one). Bump this on every viewer build.
-const VIEWER_BUILD = '1.2.9';
+const VIEWER_BUILD = '1.2.10';
 
 const mediaSrc = strip(read('src/media.js'));            // normalizeSaved (userscript, reddit side)
 const orderSrc = strip(read('src/order.js'));            // nextMode / orderItems (viewer)
 const coreSrc = strip(read('src/slideshow-core.js'));    // startSlideshow (viewer)
 const css = read('src/slideshow.css');
+// Precompiled Tailwind utilities, embedded in the page instead of the runtime Play CDN
+// (cdn.tailwindcss.com). The CDN is JavaScript that some iOS Safari private-browsing /
+// content-blocker setups silently block, which left the WHOLE UI unstyled. Inlining a
+// static stylesheet removes that dependency. Regenerate with `npm run build:css` after
+// changing any Tailwind class (see tailwind.config.cjs).
+const tailwindCss = read('src/tailwind.css');
 
 // ----------------------------------------------------------------------------
 // 1) Viewer — docs/index.html (GitHub Pages origin: no Reddit CSP lock)
@@ -421,8 +427,10 @@ const viewerHtml =
   + '<meta name="referrer" content="no-referrer">'
   + '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">'
   + '<title>Reddirama</title>'
-  + '<script src="https://cdn.tailwindcss.com"></script>'
-  + '<script>tailwind.config={theme:{extend:{colors:{gold:{DEFAULT:\'#FF4500\',dark:\'#CC3700\'}}}}}</script>'
+  // Tailwind utilities are PRECOMPILED and embedded here (no runtime cdn.tailwindcss.com):
+  // that CDN is JS that iOS Safari private-browsing / content blockers can silently block,
+  // which used to leave the entire UI unstyled. See src/tailwind.css + tailwind.config.cjs.
+  + '<style>' + tailwindCss + '</style>'
   // hls.js: reads the Reddit/redgifs HLS stream (which carries the SOUND) on browsers without native HLS
   // (Chrome/Firefox) => video sound everywhere, not just on Safari. Safari uses its native HLS.
   + '<script src="https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js"></script>'

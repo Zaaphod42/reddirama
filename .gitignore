@@ -1,5 +1,6 @@
 node_modules/
 .DS_Store
+.claude/
 
 # Xcode (Safari extension project)
 xcuserdata/
