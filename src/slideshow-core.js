@@ -39,6 +39,9 @@ const LS = {
   set speed(v) { this._set('rss_speed', String(v)); },
   get muted() { return this._get('rss_muted') !== 'false'; },
   set muted(v) { this._set('rss_muted', String(v)); },
+  // Media-type filter: 'all' (everything) | 'photos' (images/gifs/galleries) | 'videos'.
+  get view() { const v = this._get('rss_view'); return ['all', 'photos', 'videos'].indexOf(v) === -1 ? 'all' : v; },
+  set view(v) { this._set('rss_view', v); },
   // "Unseen" memory: ids of posts already SHOWN (shared across sources, this device). Capped to the
   // most recent ~5000 so it can't grow without bound.
   seenLoad() { try { return new Set(JSON.parse(this._get('rss_seen') || '[]')); } catch { return new Set(); } },
@@ -83,6 +86,7 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
     started: false,             // has the slideshow started rendering slides?
     complete: false,            // have all pages of the current source been received?
     unseen: false,              // "Unseen" mode: play only never-shown posts (filter + shuffle, streamable)
+    view: LS.view,              // media-type filter: 'all' | 'photos' | 'videos' (#viewfilter button)
     loggedIn: !!loggedIn,       // gates voting/saving (bookmark visible, swipe-vote active)
     timer: null,
     raf: null,
@@ -105,6 +109,20 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
   // user (re)selects Shuffle. The result becomes the STABLE order.
   function shuffleOnce(items) { return orderItems(items, 'random'); }
 
+  // Media-type filter (#viewfilter): 'all' keeps everything, 'photos' drops videos (keeps
+  // images/gifs/galleries), 'videos' keeps only videos. media.js tags each item with `type`.
+  function viewFilter(arr) {
+    if (state.view === 'photos') return arr.filter((x) => x && x.type !== 'video');
+    if (state.view === 'videos') return arr.filter((x) => x && x.type === 'video');
+    return arr.filter(Boolean);
+  }
+  // The pool the slideshow actually plays: the media-type filter, then (in Unseen mode) only
+  // never-shown posts. Used by rebuild() and maybeStart() so every mode honors the filter.
+  function effectivePool() {
+    const pool = viewFilter(state.raw);
+    return state.unseen ? pool.filter((x) => x && !isSeen(x.id)) : pool;
+  }
+
   // Builds `state.list` from `state.raw` according to the CURRENT mode (SAVED only;
   // FEEDS keep the server order = chrono on the list side), then re-renders if needed.
   //   chrono   -> [...raw]            (FEEDS: always here, server order preserved)
@@ -115,30 +133,32 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
   // that prev/next retrace exactly the sequence that was seen.
   function rebuild(reset) {
     const currentId = state.list[state.index]?.id;
+    // Start from the media-type filtered pool (All/Photos/Videos), then apply the ordering.
+    const pool = viewFilter(state.raw);
     // "Unseen" (any source): keep only never-shown posts, shuffled. Like random, incremental calls
     // append the freshly-arrived unseen posts at the end (we never reshuffle what is already playing).
     if (state.unseen) {
-      const pool = state.raw.filter((x) => x && !isSeen(x.id));
+      const unseenPool = pool.filter((x) => x && !isSeen(x.id));
       if (reset || !state.list.length) {
-        state.list = shuffleOnce(pool);
+        state.list = shuffleOnce(unseenPool);
       } else {
         const known = new Set(state.list.map((x) => x.id));
-        const fresh = pool.filter((x) => !known.has(x.id));
+        const fresh = unseenPool.filter((x) => !known.has(x.id));
         if (fresh.length) state.list = state.list.concat(shuffleOnce(fresh));
       }
     // Feeds are already sorted by the server: the list follows the raw order, period.
     } else if (state.kind === 'saved' && state.mode === 'random') {
       if (reset || !state.list.length) {
-        state.list = shuffleOnce(state.raw);
+        state.list = shuffleOnce(pool);
       } else {
         const known = new Set(state.list.map((x) => x.id));
-        const fresh = state.raw.filter((x) => x && !known.has(x.id));
+        const fresh = pool.filter((x) => x && !known.has(x.id));
         if (fresh.length) state.list = state.list.concat(shuffleOnce(fresh));
       }
     } else if (state.kind === 'saved' && state.mode === 'inverse') {
-      state.list = [...state.raw].reverse();
+      state.list = [...pool].reverse();
     } else {
-      state.list = [...state.raw]; // chrono (saved) OR feed (server order)
+      state.list = [...pool]; // chrono (saved) OR feed (server order)
     }
     if (reset) {
       state.index = 0;
@@ -428,6 +448,9 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
     showIcon(btn('playpause'), state.playing ? 'pause' : 'play'); // currently playing -> pause; otherwise play
     const pp = btn('playpause'); if (pp) pp.classList.toggle('paused', !state.playing); // while PAUSED: golden play icon + heartbeat (see slideshow.css)
     showIcon(btn('sound'), state.muted ? 'off' : 'on');           // muted -> off (volume-x); sound active -> on
+    showIcon(btn('viewfilter'), state.view);                      // all (image-play) / photos (image) / videos (film)
+    const vf = btn('viewfilter');
+    if (vf) vf.title = state.view === 'photos' ? 'Show: photos only' : state.view === 'videos' ? 'Show: videos only' : 'Show: all media';
     const order = btn('order'); if (order) order.textContent = orderLabel(); // Newest/Oldest/Shuffle OR Hot/New/Top
     const speed = btn('speed'); if (speed) speed.textContent = state.seconds + 's';    // 3s / 5s / 10s / 15s
   }
@@ -578,6 +601,19 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
     syncButtons();
   }
 
+  // Media filter (#viewfilter): cycles All -> Photos -> Videos. Client-side (no re-fetch):
+  // we restart the playlist under the new filter via maybeStart (which handles the empty
+  // case: still loading -> "busy", complete with no match -> onEmpty).
+  function cycleView() {
+    const order = ['all', 'photos', 'videos'];
+    state.view = order[(order.indexOf(state.view) + 1) % order.length];
+    LS.view = state.view;
+    syncButtons();        // swap the icon (image-play / image / film) + title
+    showChrome();         // keep the UI visible after the tap
+    state.started = false; // re-evaluate from scratch under the new filter (like a sort change)
+    maybeStart();
+  }
+
   // --- button wiring ---
   btn('prev').onclick = prev;
   btn('next').onclick = next;
@@ -585,6 +621,8 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
   btn('order').onclick = cycleOrder;
   btn('speed').onclick = () => cycleSpeed(+1);
   btn('sound').onclick = toggleSound;
+  const viewBtn = btn('viewfilter');
+  if (viewBtn) viewBtn.onclick = cycleView;
   const bookmarkBtn = btn('bookmark');
   if (bookmarkBtn) bookmarkBtn.onclick = toggleSave;
   const upBtn = btn('upvote');
@@ -611,6 +649,7 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
       case ' ': case 'a': setPlaying(!state.playing); e.preventDefault(); break; // space or 'a' = play/pause
       case 'm': toggleSound(); break;
       case 'o': cycleOrder(); break;
+      case 'v': cycleView(); break;   // v = cycle media filter (all / photos / videos)
       case '+': case '=': cycleSpeed(+1); break;
       case '-': cycleSpeed(-1); break;
       case 'c': toggleChrome(); handled = false; break; // 'c' toggles explicitly (show OR hide)
@@ -798,12 +837,12 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
       return;
     }
     if (streamable) {
-      if (state.unseen) {
-        if (!state.raw.some((x) => x && !isSeen(x.id))) {        // no UNSEEN post yet
-          if (state.complete) { if (onEmpty) onEmpty(); return; } // everything already seen
-          if (onBusy) onBusy(true, state.raw.length); return;    // wait for more pages
-        }
-      } else if (!state.raw.length) return;  // nothing yet: we wait for the 1st batch
+      // effectivePool() = media-type filter (+ Unseen). Empty pool with more pages coming -> wait
+      // ("busy"); empty pool once complete -> the source has no media of this type -> onEmpty.
+      if (!effectivePool().length) {
+        if (state.complete) { if (onEmpty) onEmpty(); return; }
+        if (onBusy) onBusy(true, state.raw.length); return;     // wait for more pages
+      }
       if (onBusy) onBusy(false);
       state.started = true;
       rebuild(true);                       // 1st slide, from index 0
@@ -811,7 +850,7 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
     }
     // saved + Oldest: we need the FULL set.
     if (!state.complete) { if (onBusy) onBusy(true, state.raw.length); return; }
-    if (!state.raw.length) return;
+    if (!effectivePool().length) { if (onEmpty) onEmpty(); return; }
     if (onBusy) onBusy(false);
     state.started = true;
     rebuild(true);
