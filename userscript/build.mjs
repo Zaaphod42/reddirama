@@ -19,7 +19,7 @@ const VIEWER_URL = 'https://zaaphod42.github.io/reddirama/';
 const VIEWER_ORIGIN = 'https://zaaphod42.github.io';
 // VIEWER build number, shown small and unobtrusive on the loading screen: lets Seb
 // VERIFY that he is seeing the latest version (and not a cached one). Bump this on every viewer build.
-const VIEWER_BUILD = '1.2.12';
+const VIEWER_BUILD = '1.2.13';
 
 const mediaSrc = strip(read('src/media.js'));            // normalizeSaved (userscript, reddit side)
 const orderSrc = strip(read('src/order.js'));            // nextMode / orderItems (viewer)
@@ -62,6 +62,7 @@ const viewerBoot = `
   var install = document.getElementById('msg-install');
   var errorEl = document.getElementById('msg-error');
   var emptyMsg = document.getElementById('msg-empty');
+  var caughtMsg = document.getElementById('msg-caught');
   var select = document.getElementById('source-select');
   var openedByScript = !!window.opener;
 
@@ -115,6 +116,7 @@ const viewerBoot = `
     if (install) install.classList.add('hidden');
     if (errorEl) errorEl.classList.add('hidden');
     if (emptyMsg) emptyMsg.classList.add('hidden');
+    if (caughtMsg) caughtMsg.classList.add('hidden');
     if (loading) loading.classList.remove('hidden');
     if (loadingText) {
       loadingText.textContent = (typeof count === 'number' && count > 0)
@@ -163,6 +165,22 @@ const viewerBoot = `
     if (emptyMsg) emptyMsg.classList.remove('hidden');
   }
 
+  // onCaughtUp() — "Unseen" exhausted: every post in this source has now been seen. Same overlay
+  // as onEmpty (the dropdown #topbar z-[60] stays above, so another source can be picked); the
+  // slideshow stops advancing instead of looping back onto already-seen posts.
+  function onCaughtUp() {
+    if (!msg) return;
+    var badge = document.getElementById('busy-badge');
+    msg.classList.remove('hidden');
+    if (loading) loading.classList.add('hidden');
+    if (install) install.classList.add('hidden');
+    if (errorEl) errorEl.classList.add('hidden');
+    if (emptyMsg) emptyMsg.classList.add('hidden');
+    if (badge) badge.classList.add('hidden');
+    document.body.classList.remove('busy-controls');
+    if (caughtMsg) caughtMsg.classList.remove('hidden');
+  }
+
   // onSort(sort) — a feed changed its sort (Hot/New/Top): we re-fetch the feed in that sort.
   // beginSource resets the buffer; rss-load{id,sort} restarts pagination on the userscript side.
   function onSort(sort) {
@@ -188,7 +206,7 @@ const viewerBoot = `
 
   // Creates the slideshow on first need (passes the busy/sort/vote/save callbacks + the current kind).
   function ensureHandle() {
-    if (!handle) handle = startSlideshow({ items: [], kind: currentKind, feedSorts: feedSortsFor(currentSourceId), slideSeconds: 5, onBusy: onBusy, onSort: onSort, onEmpty: onEmpty, onVote: onVote, onSave: onSave, loggedIn: loggedIn });
+    if (!handle) handle = startSlideshow({ items: [], kind: currentKind, feedSorts: feedSortsFor(currentSourceId), slideSeconds: 5, onBusy: onBusy, onSort: onSort, onEmpty: onEmpty, onCaughtUp: onCaughtUp, onVote: onVote, onSave: onSave, loggedIn: loggedIn });
     return handle;
   }
 
@@ -504,6 +522,11 @@ const viewerHtml =
     + '<div id="msg-empty" class="hidden flex flex-col items-center gap-3 max-w-md">'
       + '<p class="text-base text-white/80">No media found in this source.</p>'
       + '<p class="text-sm text-white/50">Pick another source from the menu, top left.</p>'
+    + '</div>'
+    // (e) "Unseen" exhausted: you have seen every post in this source (no looping back onto seen ones).
+    + '<div id="msg-caught" class="hidden flex flex-col items-center gap-3 max-w-md">'
+      + '<p class="text-base text-white/80">You&rsquo;re all caught up.</p>'
+      + '<p class="text-sm text-white/50">You&rsquo;ve seen everything in this source. Pick another from the menu, top left.</p>'
     + '</div>'
   + '</div>'
   + '<script>\n' + orderSrc + '\n' + coreSrc + '\n' + viewerBoot + '\n</script>'

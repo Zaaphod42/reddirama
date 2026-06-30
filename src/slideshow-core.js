@@ -24,6 +24,14 @@ const FEED_LABEL = { best: 'Best', hot: 'Hot', new: 'New', top: 'Top' };
 // as pages arrive. Only Oldest (inverse) needs the full set (Reddit serves newest-first).
 const SAVED_STREAMABLE = (mode) => mode === 'chrono' || mode === 'random';
 
+// "Unseen": index of the next NOT-yet-seen item AFTER `from` (no wrap). Returns -1 if none remain,
+// so the caller can decide: keep waiting for more pages (still streaming) or "you're all caught up"
+// (source complete). This is what stops Unseen from looping back onto posts you have already seen.
+export function nextUnseenIndex(list, from, isSeenFn) {
+  for (let i = from + 1; i < list.length; i++) { const it = list[i]; if (it && !isSeenFn(it.id)) return i; }
+  return -1;
+}
+
 // Defensive localStorage: in a blob: tab (userscript) the origin is opaque and
 // localStorage may be unavailable — we degrade silently (default settings).
 const LS = {
@@ -62,7 +70,7 @@ const LS = {
  * @param {boolean} [opts.loggedIn=false] whether voting/saving is available (logged-in Reddit session); gates the bookmark + swipe-vote
  * @returns {{ beginSource, addItems, markComplete, setItems, setVote, setSaved, setLoggedIn, state }}
  */
-export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds = 5, onRefresh = null, onBusy = null, onSort = null, onEmpty = null, onVote = null, onSave = null, loggedIn = false } = {}) {
+export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds = 5, onRefresh = null, onBusy = null, onSort = null, onEmpty = null, onCaughtUp = null, onVote = null, onSave = null, loggedIn = false } = {}) {
   const stage = document.getElementById('stage');
   const progressBar = document.getElementById('progressBar');
   const progressTrack = document.getElementById('progressTrack');      // touch zone (video scrubbing)
@@ -86,6 +94,7 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
     started: false,             // has the slideshow started rendering slides?
     complete: false,            // have all pages of the current source been received?
     unseen: false,              // "Unseen" mode: play only never-shown posts (filter + shuffle, streamable)
+    unseenWaiting: false,       // "Unseen": reached the end while the source is still streaming -> waiting for more
     view: LS.view,              // media-type filter: 'all' | 'photos' | 'videos' (#viewfilter button)
     loggedIn: !!loggedIn,       // gates voting/saving (bookmark visible, swipe-vote active)
     timer: null,
@@ -272,9 +281,38 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
       if (ni >= 0 && ni < item.images.length) { state.galleryIndex = ni; return render(); }
     }
     if (!state.list.length) return;
+    // "Unseen": NEVER wrap back onto already-seen posts (that would betray the whole point of the
+    // filter). Forward = the next not-yet-seen post; at the end => caught up (complete) or wait
+    // (still streaming). Backward = free manual review of what was already shown (clamped at start).
+    if (state.unseen) {
+      if (dir > 0) { unseenForward(); return; }
+      if (state.index > 0) { state.index -= 1; state.galleryIndex = Infinity; render(); }
+      return;
+    }
     state.index = (state.index + dir + state.list.length) % state.list.length;
     state.galleryIndex = dir > 0 ? 0 : Infinity; // Infinity => last sub-image (clamped in render)
     render();
+  }
+
+  // Advances "Unseen" to the next never-seen post, or ends the run. Also reused by addItems/
+  // markComplete to RESUME once more posts arrive after we stalled at the end of a streaming source.
+  function unseenForward() {
+    let i = nextUnseenIndex(state.list, state.index, isSeen);
+    if (i === -1) { rebuild(false); i = nextUnseenIndex(state.list, state.index, isSeen); } // pull freshly-arrived unseen
+    if (i !== -1) {
+      state.unseenWaiting = false;
+      if (onBusy) onBusy(false);
+      state.index = i; state.galleryIndex = 0; render();
+      return;
+    }
+    if (state.complete) {                 // seen everything in this source -> stop + "all caught up"
+      state.unseenWaiting = false;
+      clearTimeout(state.timer); cancelAnimationFrame(state.raf);
+      if (onCaughtUp) onCaughtUp();
+    } else {                              // more pages still coming -> wait; addItems resumes us
+      state.unseenWaiting = true;
+      if (onBusy) onBusy(true, state.raw.length);
+    }
   }
 
   // --- automatic advance + progress bar ---
@@ -531,6 +569,7 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
     // Leaving "Unseen" -> back to the source's FIRST normal sort/mode.
     if (state.unseen) {
       state.unseen = false;
+      state.unseenWaiting = false;
       if (state.kind === 'feed') { state.sort = state.feedSorts[0]; LS.sort = state.sort; syncButtons(); if (onSort) onSort(state.sort); return; }
       state.mode = 'chrono'; LS.mode = state.mode;   // back to Newest (set BEFORE syncButtons so the label is right)
       syncButtons();
@@ -542,7 +581,7 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
       const arr = state.feedSorts;
       const i = arr.indexOf(state.sort);
       if (i >= arr.length - 1) {            // last server sort -> Unseen (client filter on loaded items, no re-fetch)
-        state.unseen = true; syncButtons();
+        state.unseen = true; state.unseenWaiting = false; syncButtons();
         if (onBusy) onBusy(false);
         state.started = false; maybeStart();
         return;
@@ -840,7 +879,9 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
       // effectivePool() = media-type filter (+ Unseen). Empty pool with more pages coming -> wait
       // ("busy"); empty pool once complete -> the source has no media of this type -> onEmpty.
       if (!effectivePool().length) {
-        if (state.complete) { if (onEmpty) onEmpty(); return; }
+        // Complete + nothing to play: in "Unseen" that means you've already seen everything here
+        // ("all caught up"); otherwise the source genuinely has no media of this type ("no media").
+        if (state.complete) { if (state.unseen && onCaughtUp) onCaughtUp(); else if (onEmpty) onEmpty(); return; }
         if (onBusy) onBusy(true, state.raw.length); return;     // wait for more pages
       }
       if (onBusy) onBusy(false);
@@ -886,6 +927,7 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
       state.started = false;
       state.complete = false;
       state.unseen = false;       // a new source starts in its normal order (re-select Unseen if wanted)
+      state.unseenWaiting = false;
       configureOrder();
     },
     // Incremental addition (de-duplicated by id) then attempt to start/append.
@@ -896,11 +938,15 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
       if (!fresh.length) { if (!state.started) maybeStart(); return; }
       state.raw = state.raw.concat(fresh);
       maybeStart();
+      if (state.unseen && state.unseenWaiting) unseenForward();   // we stalled at the end: resume with the new unseen
     },
     // All pages of the current source are received: we unlock Oldest/Shuffle.
     markComplete() {
       state.complete = true;
       maybeStart();
+      // "Unseen" was waiting at the end for more pages: now the set is complete, settle it
+      // (resume on a last batch, or "all caught up" if nothing unseen remains).
+      if (state.unseen && state.unseenWaiting) unseenForward();
       // Source fully received but NO displayable media (sub/profile all text/links with no
       // preview): we notify the viewer ("no media" message rather than an endless "Loading…").
       if (onEmpty && !state.started && !state.raw.length) onEmpty();
