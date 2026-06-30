@@ -210,16 +210,33 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
     if (!introShown) { introShown = true; showChrome(); }
   }
 
-  // Preloads the next item's image (or the 1st image of a gallery) for a smooth transition.
+  // Preloads the UPCOMING images during the X seconds the current slide is shown, for smooth
+  // transitions. We look a few items AHEAD (PRELOAD_AHEAD) rather than just +1, and also warm a
+  // few sub-images of the very next gallery so stepping through it stays fluid. Kept deliberately
+  // small: this is a mobile viewer (data usage), the browser cache evicts far-ahead entries, and
+  // the user can switch sort/source at any time (preloading too far is wasted bandwidth). The
+  // browser already queues/limits parallel requests per origin, so firing these together is fine;
+  // we issue them nearest-first (+1, +2, ...) so the closest image starts downloading first.
+  const PRELOAD_AHEAD = 3;          // how many upcoming items to warm
+  const PRELOAD_GALLERY_MAX = 4;    // cap on sub-images warmed for the immediate next gallery
+  function warm(src) { if (src) { const im = new Image(); im.src = src; } }
   function preloadNext() {
     if (state.list.length < 2) return;
-    const nextItem = state.list[(state.index + 1) % state.list.length];
-    if (!nextItem) return;
-    let src = null;
-    if (nextItem.type === 'image' || nextItem.type === 'gif') src = nextItem.src;
-    else if (nextItem.type === 'gallery') src = nextItem.images?.[0]?.src;
-    else if (nextItem.type === 'video') src = nextItem.poster || null;
-    if (src) { const im = new Image(); im.src = src; }
+    const n = state.list.length;
+    const steps = Math.min(PRELOAD_AHEAD, n - 1); // never wrap past the whole list
+    for (let k = 1; k <= steps; k++) {
+      const item = state.list[(state.index + k) % n];
+      if (!item) continue;
+      if (item.type === 'image' || item.type === 'gif') warm(item.src);
+      else if (item.type === 'video') warm(item.poster || null);
+      else if (item.type === 'gallery') {
+        // For the immediate next item, warm the first few sub-images so the in-gallery
+        // stepping is smooth too; for items further ahead, just the cover image.
+        const subs = item.images || [];
+        const max = k === 1 ? Math.min(PRELOAD_GALLERY_MAX, subs.length) : 1;
+        for (let g = 0; g < max; g++) warm(subs[g]?.src);
+      }
+    }
   }
 
   // --- navigation ---
