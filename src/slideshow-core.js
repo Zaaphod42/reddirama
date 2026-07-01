@@ -50,6 +50,9 @@ const LS = {
   // Media-type filter: 'all' (everything) | 'photos' (images/gifs/galleries) | 'videos'.
   get view() { const v = this._get('rss_view'); return ['all', 'photos', 'videos'].indexOf(v) === -1 ? 'all' : v; },
   set view(v) { this._set('rss_view', v); },
+  // "Unseen" toggle, remembered like mode/sort so the order button comes back as last left (incl. on relaunch).
+  get unseen() { return this._get('rss_unseen') === 'true'; },
+  set unseen(v) { this._set('rss_unseen', v ? 'true' : 'false'); },
   // "Unseen" memory: ids of posts already SHOWN (shared across sources, this device). Capped to the
   // most recent ~5000 so it can't grow without bound.
   seenLoad() { try { return new Set(JSON.parse(this._get('rss_seen') || '[]')); } catch { return new Set(); } },
@@ -599,7 +602,7 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
     chromePinned = true; showChrome();
     // Leaving "Unseen" -> back to the source's FIRST normal sort/mode.
     if (state.unseen) {
-      state.unseen = false;
+      state.unseen = false; LS.unseen = false;
       state.unseenWaiting = false;
       if (state.kind === 'feed') { state.sort = state.feedSorts[0]; LS.sort = state.sort; syncButtons(); if (onSort) onSort(state.sort); return; }
       state.mode = 'chrono'; LS.mode = state.mode;   // back to Newest (set BEFORE syncButtons so the label is right)
@@ -612,7 +615,7 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
       const arr = state.feedSorts;
       const i = arr.indexOf(state.sort);
       if (i >= arr.length - 1) {            // last server sort -> Unseen (client filter on loaded items, no re-fetch)
-        state.unseen = true; state.unseenWaiting = false; syncButtons();
+        state.unseen = true; LS.unseen = true; state.unseenWaiting = false; syncButtons();
         if (onBusy) onBusy(false);
         state.started = false; maybeStart();
         return;
@@ -625,7 +628,7 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
     }
     // saved
     if (state.mode === 'random') {        // Shuffle is the last normal mode -> Unseen
-      state.unseen = true; syncButtons();
+      state.unseen = true; LS.unseen = true; syncButtons();
       if (onBusy) onBusy(false);
       state.started = false; maybeStart();
       return;
@@ -938,6 +941,7 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
     } else {
       state.mode = LS.mode;   // Newest/Oldest/Shuffle
     }
+    state.unseen = LS.unseen;   // restore the "Unseen" toggle (sticky, like mode/sort)
     syncButtons();
   }
 
@@ -960,7 +964,7 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
       state.galleryIndex = 0;
       state.started = false;
       state.complete = false;
-      state.unseen = false;       // a new source starts in its normal order (re-select Unseen if wanted)
+      // "Unseen" is restored from the saved preference by configureOrder() below (sticky across sources).
       state.unseenWaiting = false;
       destroyPreloadV();          // drop any warmed-up video from the previous source
       configureOrder();
