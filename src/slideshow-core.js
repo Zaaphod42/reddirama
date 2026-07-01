@@ -838,12 +838,14 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
       return;                                                    // simple image / other: a drag doesn't navigate
     }
     const x = e.clientX;                                         // TAP (small movement)
+    let reveal = true;                                           // a tap reveals the UI, except a double-tap (below)
     if (x >= window.innerWidth / 3 && x <= window.innerWidth * 2 / 3) {
       // CENTER ZONE: DOUBLE tap = pause; SINGLE tap = resume (if paused). No delay: the single tap
       // acts immediately, a quick 2nd tap pauses on top. (Detection via e.timeStamp, monotonic.)
       if (e.timeStamp - lastCenterTap < DOUBLE_TAP_MS) {
         lastCenterTap = 0;                                       // double tap consumed
         if (state.playing) { setPlaying(false); flashState(false); }
+        reveal = false;                                          // a double-tap (pause) must NOT leave the menu out
       } else {
         lastCenterTap = e.timeStamp;
         if (!state.playing) { setPlaying(true); flashState(true); }
@@ -853,9 +855,11 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
       if (x < window.innerWidth / 3) prev(); else next();
       if (!state.playing) setPlaying(true);
     }
-    // ANY tap reveals the UI — even a tap whose purpose is just to resume from pause (Seb's request).
+    // ANY tap reveals the UI — even a tap whose only purpose is to resume from pause (Seb's request).
     // Swipes, video scrubs and swipe-votes all returned earlier, so those gestures never reveal it.
-    showChrome();
+    // A double-tap (pause) is the exception: its 1st tap already revealed the UI, so the 2nd RE-HIDES it —
+    // pausing never leaves the menu out. Done WITHOUT any delay (both taps act immediately).
+    if (reveal) showChrome(); else hideChrome();
   }, { passive: true });
   stage.addEventListener('pointercancel', () => { dragStartX = null; endVideoScrub(false); }, { passive: true });
 
