@@ -839,24 +839,23 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
     }
     const x = e.clientX;                                         // TAP (small movement)
     if (x >= window.innerWidth / 3 && x <= window.innerWidth * 2 / 3) {
-      // CENTER ZONE: DOUBLE tap = pause; SINGLE tap = resume (if paused) otherwise
-      // reveal the UI (which re-hides itself). No delay: the single tap acts immediately, a
-      // quick 2nd tap pauses on top. (Detection via e.timeStamp, monotonic.)
+      // CENTER ZONE: DOUBLE tap = pause; SINGLE tap = resume (if paused). No delay: the single tap
+      // acts immediately, a quick 2nd tap pauses on top. (Detection via e.timeStamp, monotonic.)
       if (e.timeStamp - lastCenterTap < DOUBLE_TAP_MS) {
         lastCenterTap = 0;                                       // double tap consumed
         if (state.playing) { setPlaying(false); flashState(false); }
       } else {
         lastCenterTap = e.timeStamp;
         if (!state.playing) { setPlaying(true); flashState(true); }
-        else showChrome();                                       // while playing: 1st tap reveals the UI
       }
     } else {
-      // LEFT / RIGHT zones: previous / next. If we were PAUSED, we RESTART the slideshow
-      // at the same time as changing image (Seb's request).
+      // LEFT / RIGHT zones: previous / next. If we were PAUSED, RESTART at the same time.
       if (x < window.innerWidth / 3) prev(); else next();
       if (!state.playing) setPlaying(true);
-      if (chromeVisible()) armIdle();
     }
+    // ANY tap reveals the UI — even a tap whose purpose is just to resume from pause (Seb's request).
+    // Swipes, video scrubs and swipe-votes all returned earlier, so those gestures never reveal it.
+    showChrome();
   }, { passive: true });
   stage.addEventListener('pointercancel', () => { dragStartX = null; endVideoScrub(false); }, { passive: true });
 

@@ -19,7 +19,7 @@ const VIEWER_URL = 'https://zaaphod42.github.io/reddirama/';
 const VIEWER_ORIGIN = 'https://zaaphod42.github.io';
 // VIEWER build number, shown small and unobtrusive on the loading screen: lets Seb
 // VERIFY that he is seeing the latest version (and not a cached one). Bump this on every viewer build.
-const VIEWER_BUILD = '1.2.13';
+const VIEWER_BUILD = '1.2.14';
 
 const mediaSrc = strip(read('src/media.js'));            // normalizeSaved (userscript, reddit side)
 const orderSrc = strip(read('src/order.js'));            // nextMode / orderItems (viewer)
@@ -117,6 +117,7 @@ const viewerBoot = `
     if (errorEl) errorEl.classList.add('hidden');
     if (emptyMsg) emptyMsg.classList.add('hidden');
     if (caughtMsg) caughtMsg.classList.add('hidden');
+    document.body.classList.remove('caught');
     if (loading) loading.classList.remove('hidden');
     if (loadingText) {
       loadingText.textContent = (typeof count === 'number' && count > 0)
@@ -133,6 +134,7 @@ const viewerBoot = `
       if (msg) msg.classList.add('hidden');
       if (badge) badge.classList.add('hidden');
       document.body.classList.remove('busy-controls');
+      document.body.classList.remove('caught');
       return;
     }
     // While a sort is loading (Oldest waits on the whole set), keep the controls + source menu clickable
@@ -162,12 +164,16 @@ const viewerBoot = `
     if (loading) loading.classList.add('hidden');
     if (install) install.classList.add('hidden');
     if (errorEl) errorEl.classList.add('hidden');
+    if (caughtMsg) caughtMsg.classList.add('hidden');
+    document.body.classList.remove('caught');
     if (emptyMsg) emptyMsg.classList.remove('hidden');
   }
 
-  // onCaughtUp() — "Unseen" exhausted: every post in this source has now been seen. Same overlay
-  // as onEmpty (the dropdown #topbar z-[60] stays above, so another source can be picked); the
-  // slideshow stops advancing instead of looping back onto already-seen posts.
+  // onCaughtUp() — "Unseen" exhausted: every post in this source has now been seen. Instead of a full
+  // black screen, we lay a TRANSLUCENT dark veil over the (dimmed) last image via body.caught (see
+  // slideshow.css). Kept ABOVE the veil: the source dropdown (top-left), the close X (top-right) and
+  // ONLY the order/mode button (bottom-right) — "seen everything" doesn't mean the user wants to leave,
+  // they can switch sort (Newest/Oldest/Shuffle) to keep watching, pick another source, or close.
   function onCaughtUp() {
     if (!msg) return;
     var badge = document.getElementById('busy-badge');
@@ -178,6 +184,7 @@ const viewerBoot = `
     if (emptyMsg) emptyMsg.classList.add('hidden');
     if (badge) badge.classList.add('hidden');
     document.body.classList.remove('busy-controls');
+    document.body.classList.add('caught');
     if (caughtMsg) caughtMsg.classList.remove('hidden');
   }
 

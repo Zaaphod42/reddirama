@@ -50,6 +50,18 @@ body.idle #topbar { opacity: 0; pointer-events: none; }
 body.busy-controls #controls,
 body.busy-controls #topbar { z-index: 60; opacity: 1 !important; pointer-events: auto !important; }
 
+/* "All caught up" (Unseen exhausted): instead of an opaque black screen, lay a TRANSLUCENT dark veil
+   over the dimmed last image (#message goes semi-transparent). Kept ABOVE the veil: the source dropdown
+   + close X (#topbar, z-60) and ONLY the order/mode button (#order, bottom-right); the rest of the bottom
+   bar stays under the veil. So the user can switch sort, pick another source, or close. */
+body.caught #message { background-color: rgba(0, 0, 0, .72) !important; }
+body.caught #topbar { opacity: 1 !important; }
+body.caught #controls { z-index: 55; opacity: 1 !important; background: none; pointer-events: none; }
+body.caught #controls > div { opacity: 0; }                    /* hide sound/filter + prev/play/next */
+body.caught #controls > div:last-child { opacity: 1; }         /* keep the right zone... */
+body.caught #controls #speed { visibility: hidden; }           /* ...but hide speed */
+body.caught #controls #order { pointer-events: auto; }         /* order/mode button: clickable, above the veil */
+
 /* When the UI is hidden, the links (title / r/ / u/) AND the bookmark button must NOT stay
    clickable: their pointer-events:auto (useful when the UI is visible) would survive the overlay's
    pointer-events:none and open a post/sub/profile (or save) by mistake. So we force them off too. */
