@@ -266,6 +266,9 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
         for (let g = 0; g < max; g++) warm(subs[g]?.src);
       }
     }
+    // Warm ONLY the immediate-next video's stream (1 ahead) for a fast start; drop the warm-up otherwise.
+    const nxt = state.list[(state.index + 1) % n];
+    if (nxt && nxt.type === 'video') warmVideo(nxt); else destroyPreloadV();
   }
 
   // --- navigation ---
@@ -368,6 +371,49 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
   // Common class so that both the image AND the video fill the screen (contain).
   const MEDIA_CLASS = 'w-full h-full object-contain';
 
+  // Sets up a <video>'s stream sources the SAME way for playback and for warm-up: Safari (native HLS)
+  // keeps a <source type=…mpegurl> (that is what gives it SOUND — a raw v.src can mute it); Chrome/Firefox
+  // use hls.js; last resort mp4. Returns the hls.js instance (or null). (typeof Hls: safe outside the viewer.)
+  function attachVideoSources(v, item) {
+    const nativeHls = !!v.canPlayType('application/vnd.apple.mpegurl');
+    if (item.hls && nativeHls) {
+      const sh = document.createElement('source'); sh.src = item.hls; sh.type = 'application/vnd.apple.mpegurl'; v.appendChild(sh);
+      if (item.mp4) { const sm = document.createElement('source'); sm.src = item.mp4; sm.type = 'video/mp4'; v.appendChild(sm); }
+      return null;
+    }
+    if (item.hls && typeof Hls !== 'undefined' && Hls.isSupported()) {
+      const hls = new Hls({ capLevelToPlayerSize: true }); hls.loadSource(item.hls); hls.attachMedia(v); return hls;
+    }
+    if (item.mp4) { v.src = item.mp4; return null; }
+    if (item.hls) { v.src = item.hls; return null; }
+    return null;
+  }
+
+  // Lightweight warm-up of the IMMEDIATE-NEXT video only (called from preloadNext): a hidden, muted
+  // <video preload="auto"> pre-fetches the stream (into the HTTP cache + a warmed connection), so when
+  // that video becomes the current slide it starts (much) faster instead of buffering from scratch. Kept
+  // to a SINGLE video ahead to stay light on mobile data. It is never shown and never handed off — the
+  // playback element is still created fresh in renderMedia (unchanged), it just reuses the warmed cache.
+  let preloadV = null;   // { id, el, hls } — the video currently being warmed, if any
+  function warmVideo(item) {
+    if (!item || item.type !== 'video') return;
+    if (preloadV && preloadV.id === item.id) return;      // already warming this exact video
+    destroyPreloadV();
+    const v = document.createElement('video');
+    v.muted = true; v.playsInline = true; v.preload = 'auto';
+    v.setAttribute('style', 'position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0;pointer-events:none');
+    const hls = attachVideoSources(v, item);
+    (document.body || document.documentElement).appendChild(v);
+    try { v.load(); } catch (e) { /* noop */ }
+    preloadV = { id: item.id, el: v, hls: hls };
+  }
+  function destroyPreloadV() {
+    if (!preloadV) return;
+    try { if (preloadV.hls) preloadV.hls.destroy(); } catch (e) { /* noop */ }
+    try { if (preloadV.el.pause) preloadV.el.pause(); preloadV.el.removeAttribute('src'); preloadV.el.innerHTML = ''; if (preloadV.el.load) preloadV.el.load(); preloadV.el.remove(); } catch (e) { /* noop */ }
+    preloadV = null;
+  }
+
   function renderMedia(item) {
     if (item.type === 'image' || item.type === 'gif') {
       return stage.appendChild(makeImg(item.src));
@@ -393,24 +439,9 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
       // Slideshow PAUSED => the video LOOPS: it never freezes on its last
       // frame and will resume cleanly when play is pressed (see setPlaying).
       v.loop = !state.playing;
-      // Video source. Safari (native HLS): we keep <source> WITH the explicit type
-      // 'application/vnd.apple.mpegurl' — that is what triggers its HLS pipeline (hence the SOUND; a
-      // raw v.src with no type can deprive it of audio). Chrome/Firefox (no native HLS): hls.js plays
-      // the HLS (with sound), quality adapted to the screen. Last fallback: mp4. (typeof Hls: safe outside the viewer.)
+      // Stream sources (Safari native HLS for sound / hls.js / mp4). Shared with the warm-up path.
       const nativeHls = !!v.canPlayType('application/vnd.apple.mpegurl');
-      if (item.hls && nativeHls) {
-        const sh = document.createElement('source'); sh.src = item.hls; sh.type = 'application/vnd.apple.mpegurl'; v.appendChild(sh);
-        if (item.mp4) { const sm = document.createElement('source'); sm.src = item.mp4; sm.type = 'video/mp4'; v.appendChild(sm); }
-      } else if (item.hls && typeof Hls !== 'undefined' && Hls.isSupported()) {
-        const hls = new Hls({ capLevelToPlayerSize: true });
-        hls.loadSource(item.hls);
-        hls.attachMedia(v);
-        v._hls = hls;
-      } else if (item.mp4) {
-        v.src = item.mp4;
-      } else if (item.hls) {
-        v.src = item.hls;
-      }
+      v._hls = attachVideoSources(v, item);
       // Guard by item ID (not by index): streaming/reordering changes the index,
       // but the current item stays the same as long as we don't navigate -> we only advance if the
       // video that finishes is STILL the one displayed.
@@ -931,6 +962,7 @@ export function startSlideshow({ items, kind = 'saved', feedSorts, slideSeconds 
       state.complete = false;
       state.unseen = false;       // a new source starts in its normal order (re-select Unseen if wanted)
       state.unseenWaiting = false;
+      destroyPreloadV();          // drop any warmed-up video from the previous source
       configureOrder();
     },
     // Incremental addition (de-duplicated by id) then attempt to start/append.
